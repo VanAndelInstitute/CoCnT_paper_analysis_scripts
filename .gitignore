@@ -6,3 +6,4 @@ bk
 *.tsv
 *.html
 *.spin.*
+*/*.arrow
