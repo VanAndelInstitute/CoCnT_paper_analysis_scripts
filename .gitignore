@@ -1,4 +1,8 @@
-*.arrow
 tmp
+figures
 ArchRLogs
-QualityControl
+tmp2
+bk
+*.tsv
+*.html
+*.spin.*
