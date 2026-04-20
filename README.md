@@ -4,9 +4,15 @@ This repository collects the analysis scripts used to process and analyze the PB
 
 Detailed instructions for each stage are documented in the `README.md` file within the corresponding subdirectory.
 
+## What's not included in this repo:
+
+About sequencing data demultiplexing and mapping, please refering to this Nextflow workflow: https://github.com/vari-bbc/sciCT_pipeline
+
+It needs `BAM` files to use SouporCells to identify the cell doublets. But the `BAM` files are very big for shipping with this repo or in Zenodo. So the souporcell step will only provide the script and output. 
+If you are using CoCnT and want to run SouporCells, please check out our Nextflow workflow here: https://github.com/vari-bbc/souper-star
+
 ## Repository Layout
 
-- About sequencing data demultiplexing and mapping, please refering to this workflow: https://github.com/vari-bbc/sciCT_pipeline
 
 - [`run_BM_create_arrow/`](run_BM_create_arrow/)
   Generate ArchR Arrow files from mono-occupancy and co-occupancy BED inputs.
