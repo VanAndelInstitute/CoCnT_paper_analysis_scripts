@@ -1,3 +1,23 @@
+## script: run_236_sc_reads_map.R
+## pourpose: Plot the distribution of sc reads on genome for different cell types and pseudotime order to jointly visuzlize with IGV track
+## input:
+## - metadata with cell type pseudotime information
+## * ./tmp/table_metadata_h3k27me3_final3_with_trajectories.tsv
+## - bed file with sc read fragments
+## * ../run_BM_bed_profile/tmp/table_good_cells_fragments.tsv
+## - sample sheet for sample annotation
+## * ../../data/sample_sheet_PR001798.tsv
+## * ../../data/sample_sheet_PR001799.tsv
+## * ../../data/sample_sheet_PR001855.tsv
+## * ../../data/sample_sheet_PR001856.tsv
+## output:
+## - figures with sc read distribution on genome for different cell types and pseudotime order
+## * figures/236_fragment_plot_pax5.pdf
+## * figures/236_fragment_plot_gata1.pdf
+## * figures/236_fragment_plot_prom1.pdf
+## * figures/236_fragment_plot_HBA1&2.pdf
+## * figures/236_fragment_plot_GATA5.pdf
+##
 library(data.table)
 library(ggplot2)
 library(ggpubr)
@@ -343,67 +363,71 @@ dev.off()
 ## }}}
 
 
+############
+#  Backup  #
+############
+
 ## back up {{{
 ## Count Y reads per cell
-d_sub_Y = d_bed[chr == "chrY"]
-d_sub_Y
-merge(d_meta[, .(cell_id, assignment)], d_sub_Y[, .N, cell_id])[
-    , median(N), assignment]
-
-## Count X reads per cell
-d_sub_X = d_bed[chr == "chrX"]
-d_sub_X
-merge(d_meta[, .(cell_id, assignment)], d_sub_X[, .N, cell_id])[
-    , median(N), assignment]
-
-
-## H3K27me3 distribution on Y chrom
-httpgd::hgd(port = 4323)
-
-sample_v = sample_sheet[antibody_target == "H3K27me3" & library_type == "CoCnT", sample_name]
-d_sub_Y_k27 = d_sub_Y[sample_name %in% sample_v]
-d_sub_Y_k27 = merge(d_sub_Y_k27, d_meta[, .(cell_id, assignment)], by = "cell_id")
-d_sub_Y_k27 = d_sub_Y_k27[assignment %in% c("0", "1", "2", "3")][order(assignment)]
-
-## order by donnor
-
-ggplot(d_sub_Y_k27) +
-    geom_segment(aes(x = start, xend = end,
-	    y = cell_id, yend = cell_id),
-	linewidth = 0.5) +
-    theme_classic() +
-    theme(
-	axis.text.y  = element_blank(),
-	axis.ticks.y = element_blank(),
-	axis.title.y = element_blank()
-	) +
-    labs(x = "Genomic position")
-
-## H3K27me3 distribution on X chrom
-sample_v = sample_sheet[antibody_target == "H3K4me2" & library_type %in% c("CoCnt1", "CoCnt2"), sample_name]
-# sample_v = sample_sheet[antibody_target == "H3K4me2" & library_type %in% c("CoCnT"), sample_name]
-d_sub_X = d_bed[chr == "chr4"]
-d_sub_X_k27 = d_sub_X[sample_name %in% sample_v]
-d_sub_X_k27 = merge(d_sub_X_k27, d_meta[, .(cell_id, assignment, Bcell_Trajectory)], by = "cell_id") %>% na.omit
-# d_sub_X_k27 = d_sub_X_k27[assignment %in% c("0", "1", "2", "3")][order(assignment)] %>% na.omit
-
-unique(d_sub_X_k27$cell_id) %>% length
-
-## order by donnor
-
-g = ggplot(d_sub_X_k27) +
-    geom_segment(aes(x = start, xend = end,
-	    y = -Bcell_Trajectory, yend = -Bcell_Trajectory),
-	linewidth = 0.5) +
-    # facet_wrap(~ assignment, ncol = 1) +
-    theme_classic() +
-    theme(
-	axis.text.y  = element_blank(),
-	axis.ticks.y = element_blank(),
-	axis.title.y = element_blank()
-	) +
-    labs(x = "Genomic position")
-
-ggsave("figures/test_x_H3K4me2_cooc.pdf", g, width = 4, height = 3)
-
-## }}}
+# d_sub_Y = d_bed[chr == "chrY"]
+# d_sub_Y
+# merge(d_meta[, .(cell_id, assignment)], d_sub_Y[, .N, cell_id])[
+#     , median(N), assignment]
+#
+# ## Count X reads per cell
+# d_sub_X = d_bed[chr == "chrX"]
+# d_sub_X
+# merge(d_meta[, .(cell_id, assignment)], d_sub_X[, .N, cell_id])[
+#     , median(N), assignment]
+#
+#
+# ## H3K27me3 distribution on Y chrom
+# httpgd::hgd(port = 4323)
+#
+# sample_v = sample_sheet[antibody_target == "H3K27me3" & library_type == "CoCnT", sample_name]
+# d_sub_Y_k27 = d_sub_Y[sample_name %in% sample_v]
+# d_sub_Y_k27 = merge(d_sub_Y_k27, d_meta[, .(cell_id, assignment)], by = "cell_id")
+# d_sub_Y_k27 = d_sub_Y_k27[assignment %in% c("0", "1", "2", "3")][order(assignment)]
+#
+# ## order by donnor
+#
+# ggplot(d_sub_Y_k27) +
+#     geom_segment(aes(x = start, xend = end,
+# 	    y = cell_id, yend = cell_id),
+# 	linewidth = 0.5) +
+#     theme_classic() +
+#     theme(
+# 	axis.text.y  = element_blank(),
+# 	axis.ticks.y = element_blank(),
+# 	axis.title.y = element_blank()
+# 	) +
+#     labs(x = "Genomic position")
+#
+# ## H3K27me3 distribution on X chrom
+# sample_v = sample_sheet[antibody_target == "H3K4me2" & library_type %in% c("CoCnt1", "CoCnt2"), sample_name]
+# # sample_v = sample_sheet[antibody_target == "H3K4me2" & library_type %in% c("CoCnT"), sample_name]
+# d_sub_X = d_bed[chr == "chr4"]
+# d_sub_X_k27 = d_sub_X[sample_name %in% sample_v]
+# d_sub_X_k27 = merge(d_sub_X_k27, d_meta[, .(cell_id, assignment, Bcell_Trajectory)], by = "cell_id") %>% na.omit
+# # d_sub_X_k27 = d_sub_X_k27[assignment %in% c("0", "1", "2", "3")][order(assignment)] %>% na.omit
+#
+# unique(d_sub_X_k27$cell_id) %>% length
+#
+# ## order by donnor
+#
+# g = ggplot(d_sub_X_k27) +
+#     geom_segment(aes(x = start, xend = end,
+# 	    y = -Bcell_Trajectory, yend = -Bcell_Trajectory),
+# 	linewidth = 0.5) +
+#     # facet_wrap(~ assignment, ncol = 1) +
+#     theme_classic() +
+#     theme(
+# 	axis.text.y  = element_blank(),
+# 	axis.ticks.y = element_blank(),
+# 	axis.title.y = element_blank()
+# 	) +
+#     labs(x = "Genomic position")
+#
+# ggsave("figures/test_x_H3K4me2_cooc.pdf", g, width = 4, height = 3)
+#
+# ## }}}

@@ -1,3 +1,24 @@
+## script: run_240_gene_score_scRNA_gene.R
+## purpose: comapre the gene expression of genes with different chromatin status trajectory in scRNASeq data
+## input: 
+## - the scRNASeq data with pseudotime calculated in the original paper (Traina et al., 2021)
+## * ../data/triana_2021/WTA_projected.bk.rds
+## - the gene list with different chromatin status trajectory calculated in the previous script
+## * ./tmp/table_gene_chromatin_status_trajectory_consensus_remove_dup_long.tsv
+## - the gene list of whether the gene has cpg island in promoter
+## * ./tmp/table_gene_cpg_island_promoter_hg19.txt
+## output:
+## - scRNASeq umap
+## * ./figures/240_dimplot_scRNASeq_umap.pdf
+## - the gene expression of genes with different chromatin status trajectory in scRNASeq data
+## * ./figures/240_x2active_gene_expression.pdf
+## - the fold change of gene expression (compared to HSCs & MPPs) of genes with different chromatin status trajectory in scRNASeq data
+## * ./figures/240_plot_x2active_fold_change > 2.pdf
+## - the gene expression of genes with different chromatin status trajectory along pseudotime in scRNASeq data
+## * ./figures/240_scatter_plot_x2active_RNA_pseudotime.pdf
+## - the gene expression of specific genes along pseudotime in scRNASeq data
+## * ./figures/240_gene_scRNA_pseudotime.pdf
+##
 library(data.table)
 library(ggplot2)
 library(ggpubr)
@@ -8,8 +29,6 @@ library(stringr)
 
 library(Seurat)
 library(slingshot)
-
-httpgd::hgd(port = 4323)
 
 cpg_gene = readLines("./tmp/table_gene_cpg_island_promoter_hg19.txt")
 
@@ -69,11 +88,11 @@ celltype_order_l <- list(
     )
 )
 
-unique(so@meta.data$ct)
+# unique(so@meta.data$ct)
 
 ## Draw the umap for each lineage {{{
 
-so <- read_rds("../../data/triana_2021/WTA_projected.bk.rds")
+so <- read_rds("../data/triana_2021/WTA_projected.rds")
 Idents(so) <- so@meta.data$ct
 
 pdf("./figures/240_dimplot_scRNASeq_umap.pdf", width = 8, height = 5)
@@ -414,53 +433,48 @@ dev.off()
 
 ## }}}
 
-## Bivalent genes has higher expression than univalent genes and background {{{
-
-d_plot = rbindlist(d_b_l)
-
-ggplot(d_plot) + aes(x = ct, y = y, fill = cat) +
-    geom_boxplot(outliers = F)
+############
+#  Backup  #
+############
 
 
-## }}}
-
-## Back {{{
-so_sub@meta.data$ct %<>% factor(levels = celltype_order)
-
-pdf("./figures/240_violin_plot_b_cell_markers.pdf", width = 12, height = 4)
-VlnPlot(
-    so_sub,
-    features = c("DNTT", "RAG1", "PAX5", "TCF3", "EBF1", "ID2"),
-    group.by = "ct",
-    combine = F
-)
-dev.off()
-
-
-gene_v <- c("DNTT", "RAG1", "RAG2", "PAX5", "EBF1")
-x <- so@meta.data$ct
-
-pdf("./figures/240_scatter_plot_b_cell_markers.pdf", width = 6, height = 4)
-for (gene in gene_v) {
-    print(gene)
-    d_plot <- data.table(
-        ct = x,
-        y = d[gene, ],
-        gene = gene
-    ) %>% na.omit()
-
-    d_plot <- d_plot[ct %in% celltype_order]
-    d_plot$ct <- factor(d_plot$ct, levels = celltype_order)
-
-    p <- ggplot(d_plot, aes(x = ct, y = y)) +
-        geom_boxplot() +
-        theme_classic() +
-        xlab("B cell annotation") +
-        ylab(paste0(gene, " (scaled)")) +
-        theme(axis.text.x = element_text(angle = 45, hjust = 1))
-    print(p)
-}
-dev.off()
-
-## }}}
+# ## Back {{{
+# so_sub@meta.data$ct %<>% factor(levels = celltype_order)
+#
+# pdf("./figures/240_violin_plot_b_cell_markers.pdf", width = 12, height = 4)
+# VlnPlot(
+#     so_sub,
+#     features = c("DNTT", "RAG1", "PAX5", "TCF3", "EBF1", "ID2"),
+#     group.by = "ct",
+#     combine = F
+# )
+# dev.off()
+#
+#
+# gene_v <- c("DNTT", "RAG1", "RAG2", "PAX5", "EBF1")
+# x <- so@meta.data$ct
+#
+# pdf("./figures/240_scatter_plot_b_cell_markers.pdf", width = 6, height = 4)
+# for (gene in gene_v) {
+#     print(gene)
+#     d_plot <- data.table(
+#         ct = x,
+#         y = d[gene, ],
+#         gene = gene
+#     ) %>% na.omit()
+#
+#     d_plot <- d_plot[ct %in% celltype_order]
+#     d_plot$ct <- factor(d_plot$ct, levels = celltype_order)
+#
+#     p <- ggplot(d_plot, aes(x = ct, y = y)) +
+#         geom_boxplot() +
+#         theme_classic() +
+#         xlab("B cell annotation") +
+#         ylab(paste0(gene, " (scaled)")) +
+#         theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#     print(p)
+# }
+# dev.off()
+#
+# ## }}}
 

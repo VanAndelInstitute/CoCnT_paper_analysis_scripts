@@ -1,3 +1,21 @@
+## script: run_241_gene_score_pseudo_bulk_RNA_genesets.R
+## purpose: Generate heatmaps of pseudo-bulk RNA expression for specific gene sets across cell types.
+## input: 
+## - scRNA-seq pseudo-bulk RNA expression data by cell type
+## * ./tmp/table_triana_2021_rna_pseudo_bulk_by_ct.tsv
+## - Gene lists for PRC2, H3K4 demethylases, H3K4 methyltransferases, and control genes
+## * ../data/Gene_Lists/gene_list_PRC2.csv
+## * ../data/Gene_Lists/gene_list_control.csv
+## * ../data/Gene_Lists/gene_list_H3K4_h3k27_demethylase.csv
+## * ../data/Gene_Lists/gene_list_H3K4_methyltransferase.csv
+## output: 
+## - Heatmaps of pseudo-bulk RNA expression for the specified gene sets across cell types
+## * ./figures/241_heatmap_PR2C_genes_pseudo_bulk_RNA_by_cell_type.pdf
+## * ./figures/241_heatmap_H3K4_demethylase_genes_pseudo_bulk_RNA_by_cell_type.pdf
+## * ./figures/241_heatmap_H3K4_methyltransferase_genes_pseudo_bulk_RNA_by_cell_type.pdf
+## * ./figures/241_heatmap_control_genes_pseudo_bulk_RNA_by_cell_type.pdf
+## * ./figures/241_heatmap_B_cell_genes_pseudo_bulk_RNA_by_cell_type.pdf
+##
 library(data.table)
 library(ggplot2)
 library(ggpubr)

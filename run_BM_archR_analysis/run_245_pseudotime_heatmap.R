@@ -1,3 +1,20 @@
+## script: run_245_pseudotime_heatmap.R
+## purpose: Generate heatmaps of gene activity along pseudotime trajectories for specific gene sets categorized
+## by chromatin state transitions, and compare activation times between different transition types.
+## input:
+## - Imputed gene score matrices for different histone marks
+## * ./tmp/list_matrix_imputed_gene_score.rds
+## - Metadata with pseudotime trajectories for each cell
+## * ./tmp/table_metadata_h3k4me27_final3_HSPC.tsv
+## - Gene categorization based on chromatin state transitions
+## * ./tmp/table_gene_chromatin_status_trajectory_consensus_remove_dup_long.tsv
+## output:
+## - Heatmaps of gene activity along pseudotime trajectories for genes categorized by chromatin state
+## transitions (Un->Active and Bivalent->Active) for each lineage
+## * ./figures/245_pseudotime_heatmap_activation_order_50_me2.pdf
+## - Comparison of activation times between Un->Active and Bivalent->Active gene sets for each lineage
+## * ./figures/245_activation_time_comparison_50_me2.pdf
+## 
 library(data.table)
 library(ggplot2)
 library(ggpubr)
@@ -7,12 +24,10 @@ library(stringr)
 library(pheatmap)
 
 m_list <- readRDS("./tmp/list_matrix_imputed_gene_score.rds")
-d_meta <- fread("./tmp/table_metadata_h3k27me3_final3_with_trajectories.tsv")
+d_meta <- fread("./tmp/table_metadata_h3k4me27_final3_HSPC.tsv")
 gene_category <- fread("./tmp/table_gene_chromatin_status_trajectory_consensus_remove_dup_long.tsv")
 
-
 d <- fread("./tmp/table_gene_chromatin_status_consensus_by_celltype.tsv")
-d[gene %in% "DNTT"]
 
 
 marker_colors <- c(
@@ -91,9 +106,9 @@ process_heatmap <- function(mat) {
 
 ## }}}
 
-x_marker <- "H3K4me1"
+x_marker <- "H3K4me2"
 
-pdf("./figures/245_pseudotime_heatmap_activation_order_50_me1.pdf", width = 8, height = 12)
+pdf("./figures/245_pseudotime_heatmap_activation_order_50_me2.pdf", width = 8, height = 12)
 
 lapply(1:length(trajectory_map), function(i) {
     cat("Processing lineage:", names(trajectory_map)[i], "\n")
@@ -144,7 +159,7 @@ activation_time_list %>% rbindlist() -> activation_time_df_all
 # activation_time_df_all[, max_time := max(activation_time[is.finite(activation_time)], na.rm = TRUE), by = lineage]
 # activation_time_df_all[, activation_time := activation_time / max_time * 100]
 
-pdf("./figures/245_activation_time_comparison_50_me1.pdf", width = 6, height = 4)
+pdf("./figures/245_activation_time_comparison_50_me2.pdf", width = 6, height = 4)
 ggplot(activation_time_df_all[activation_time > 1], aes(x = type, y = activation_time, fill = type)) +
     geom_violin(outlier.shape = NA) +
     # geom_boxplot(width = 0.1, outlier.shape = NA) +

@@ -1,3 +1,14 @@
+## script: run_244_chromatin_state_enrichment.R
+## purpose: Perform Gene Ontology enrichment analysis for genes categorized by chromatin state in HSPCs and MPPs, and visualize the results.
+## input:
+## - chromatin state consensus data for genes in HSPCs
+## * ./tmp/table_gene_chromatin_status_consensus_by_celltype_wide.tsv
+## output:
+## - Gene Ontology enrichment results for each chromatin state category (Bivalent, Active, Repressive, Unmarked)
+## * ./tmp/table_HSPC_state_GO_enrichment.tsv
+## - Visualization of GO enrichment results for each chromatin state category
+## * ./figures/244_figure_chromatin_state_enrichment.pdf
+##
 library(data.table)
 library(ggplot2)
 library(ggpubr)
@@ -96,7 +107,6 @@ write_tsv(plot_df, "./tmp/table_HSPC_state_GO_enrichment.tsv")
 
 plot_df = fread("./tmp/table_HSPC_state_GO_enrichment.tsv")
 
-httpgd::hgd(port = 4322)
 
 pdf("./figures/244_figure_chromatin_state_enrichment.pdf", width = 10, height = 7)
 
