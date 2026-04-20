@@ -14,6 +14,9 @@
 #   - ./tmp/table_gene_chromatin_status_wide_me1.tsv
 #   - ./tmp/table_gene_chromatin_status_wide_me2.tsv
 #   - ./tmp/table_gene_chromatin_status_wide_me3.tsv
+#   - ./tmp/table_gene_chromatin_status_consensus_by_celltype.tsv
+#   - ./tmp/table_gene_chromatin_status_consensus_by_celltype_wide.tsv
+#   - figures/222_scatter_plot_threshold.pdf
 #
 # Description:
 #   - This script reads in marker gene average scores and the list of genes with CpG islands.
@@ -131,6 +134,46 @@ assign_chromatin_status <- function(d_plot, histone_marks, cooc_mark, cutoff, ou
 assign_chromatin_status(d_plot, "H3K4me1", "H3K4me1_cooc", cutoff, "me1")
 assign_chromatin_status(d_plot, "H3K4me2", "H3K4me2_cooc", cutoff, "me2")
 assign_chromatin_status(d_plot, "H3K4me3", "H3K4me3_cooc", cutoff, "me3")
+
+# Scatter plot of H3K4me2 and H3K27me3 and H3K4me2-cooc {{{
+pdf("./figures/222_scatter_plot_threshold.pdf")
+d_plot_w = d_plot[cell_type %in% c("HSPC")] %>% 
+    dcast(gene + cell_type + is_cpg ~ marker, value.var = "gene_score")
+
+ggplot(d_plot_w, aes(x = H3K27me3 + 0.01, y = H3K4me2 + 0.1, color = H3K4me2_cooc + 0.1)) +
+    geom_point(size = 0.7, alpha = 0.5) +
+    geom_density2d(color = "black", alpha = 0.3) +
+    scale_color_gradient(low = "grey", high = "orange", transform = "log10") +
+    theme_classic() +
+    geom_vline(xintercept = cutoff["H3K27me3"]) +
+    geom_hline(yintercept = cutoff["H3K4me2"]) +
+    scale_y_log10() + scale_x_log10() +
+    ggtitle("HSPC: H3K4me2 vs H3K27me3 colored by H3K4me2 co-occurrence score")
+dev.off()
+
+## }}}
+
+
+## Get consensus chromatin status across the 4 markers
+f_v = dir("./tmp/", "table_gene_chromatin_status_by_celltype") %>% grep("123", ., invert = TRUE, value = T) 
+d = lapply(f_v, function(f) {
+    d = fread(paste0("./tmp/", f))
+    names(d) = c("gene", "celltype", "is_cpg", "K27", "K4", "cooc", "cat")
+    d[, mark := str_extract(f, "me[123]")]
+    return(d)
+}) %>% rbindlist()
+
+d_consensus = d[, .(consensus_count = .N, consensus = paste(sort(mark), collapse = "+")), by = .(gene, celltype, cat)]
+d_consensus
+
+d_consensus$cell_type = d_consensus$celltype
+
+write_tsv(d_consensus, "./tmp/table_gene_chromatin_status_consensus_by_celltype.tsv")
+
+d_consensus_w = dcast(d_consensus[consensus_count > 1], gene ~ celltype, value.var = "cat")
+
+write_tsv(d_consensus_w, "./tmp/table_gene_chromatin_status_consensus_by_celltype_wide.tsv")
+
 
 
 ### {{{

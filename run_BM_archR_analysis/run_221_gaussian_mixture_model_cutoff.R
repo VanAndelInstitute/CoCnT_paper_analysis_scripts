@@ -2,7 +2,6 @@
 # Script: run_221_gaussian_mixture_model_cutoff.R
 #
 # Input:
-#   - table_cell_cluster_annotation_final.tsv: cell-type/cluster annotations.
 #   - table_gene_marker_average_score_by_celltype.tsv.gz: marker gene scores by cell type (compressed).
 #
 # Output:
@@ -17,7 +16,6 @@ library(magrittr)
 library(readr)
 library(stringr)
 
-d_ann = fread("./tmp/table_metadata_h3k27me3_final3.tsv")
 d_exp = fread("./tmp/table_gene_marker_average_score_by_celltype.tsv.gz")
 
 library(mclust)
@@ -42,7 +40,7 @@ cell_type_included = c(
 )
 
 
-pdf("./figures/figure_supplementary_gaussian_mixture_model_cutoff.pdf", width = 7, height = 5)
+pdf("./figures/221_figure_supplementary_gaussian_mixture_model_cutoff.pdf", width = 7, height = 5)
 for (i in 1:length(marker_v)) {
     print(i)
     set.seed(1234)
@@ -51,7 +49,6 @@ for (i in 1:length(marker_v)) {
     gene_score = d_exp_sub$gene_score
 
     x <- gene_score
-    # x = x[x > 0]
     x_log <- log10(x + 0.1)
 
     fit <- Mclust(x_log, G = 2)

@@ -52,7 +52,7 @@ d_list = lapply(1:length(m_list), function(i) {
     marker_name = names(m_list)[i]
     m = m_list[[i]] %>% as.matrix
     cell_id_m = colnames(m) %>% sub(".*#", "", .)
-    cell_type = d_celltype[match(cell_id_m, cell_id), cluster_k27]
+    cell_type = d_celltype[match(cell_id_m, cell_id), ct2]
     m = m[, !is.na(cell_type)]
     cell_type = cell_type[!is.na(cell_type)]
     split_idx <- split(seq_along(cell_type), cell_type)

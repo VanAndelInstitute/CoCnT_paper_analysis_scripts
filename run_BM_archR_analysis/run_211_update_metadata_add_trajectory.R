@@ -1,3 +1,23 @@
+##################################################
+## Script: run_211_update_metadata_add_trajectory.R
+## Pourpose: update the metadata and UMAP tables with the new cell type annotation, and
+## plot the UMAP with the new cell type annotation, and add trajectories to the ArchR object
+## INPUT:
+## - ArchR project of whole BM with H3K27me3 data
+## * ./tmp/H3K27me3_coCnT_final3/
+## - Metadata table with new cell type annotation
+## * ../app_trajectory_shiny/data/cell_metadata.tsv
+## OUTPUT:
+## - Updated metadata table with new cell type annotation
+## * ./tmp/table_metadata_h3k27me3_final3_HSPC.tsv
+## - UMAP plot with the new cell type annotation
+## * ./figures/221_figure_umap_h3k27me3_final3.pdf
+## - Trajectory plot PDF
+## * ./figures/221_figure_H3K27me3_Trajectory.pdf
+## - Updated ArchR project with lineage trajectories
+## * ./tmp/H3K27me3_coCnT_final3/
+##
+
 library(data.table)
 library(ggplot2)
 library(ggpubr)
@@ -80,13 +100,14 @@ saveArchRProject(proj_h3k27, outputDirectory = "./tmp/H3K27me3_coCnT_final3/", l
 
 ## Output the metadata and umap tables
 
-d_meta = as.data.table(proj_h3k27@cellColData)
-
-write_tsv(d_meta, "./tmp/table_metadata_h3k4me27_final3_HSPC_with_trajectories.tsv")
-
 umap_h3k27 = as.data.table( getEmbedding( ArchRProj = proj_h3k27, embedding = "UMAP"))
 names(umap_h3k27) = c("UMAP1", "UMAP2")
 
-write_tsv(umap_h3k27, "./tmp/table_umap_h3k4me27_final3_HSPC.tsv")
+d_meta = as.data.table(proj_h3k27@cellColData)
+d_meta = cbind(d_meta, umap_h3k27)
+
+d_meta$ct3
+
+write_tsv(d_meta, "./tmp/table_metadata_h3k4me27_final3_HSPC.tsv")
 
 

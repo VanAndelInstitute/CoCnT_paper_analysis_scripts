@@ -1,3 +1,19 @@
+##################################################
+## Script: run_207_output_new_celltype_annotation_HSPC.R
+## Pourpose: output the new cell type annotation of HSPC clusters
+## INPUT:
+## - ArchR project of whole BM with H3K27me3 data
+## * ./tmp/H3K27me3_coCnT_final3/
+## - ArchR project of whole BM with H3K4me1 data
+## * ./tmp/H3K4me1_coCnT_final3/
+## - ArchR project of whole BM with H3K4me2 data
+## * ./tmp/H3K4me2_coCnT_final3/
+## - ArchR project of whole BM with H3K4me3 data
+## * ./tmp/H3K4me3_coCnT_final3/
+## OUTPUT:
+## - Table of cell cluster annotation of HSPC clusters
+## * ./tmp/table_cell_cluster_annotation_final_HSPC.tsv
+##
 library(data.table)
 library(ggplot2)
 library(ggpubr)
@@ -6,8 +22,6 @@ library(magrittr)
 library(readr)
 library(stringr)
 library(ggsci)
-
-httpgd::hgd(port = 4324)
 
 library(ArchR)
 addArchRGenome("hg38")

@@ -5,7 +5,7 @@
 #   - table_gene_marker_average_score_by_celltype.tsv.gz: marker gene scores by cell type (compressed).
 #
 # Output:
-#   - A PDF file ('./figures/figure_chromatin_status_dynamics_v2.pdf') visualizing the chromatin status dynamics for each cell type.
+#   - A PDF file ('./figures/223_figure_chromatin_status_dynamics_v2.pdf') visualizing the chromatin status dynamics for each cell type.
 # =============================================================================
 
 library(data.table)
@@ -105,7 +105,7 @@ plot_chromatin_status <- function(file_path, plot_title = NULL) {
 }
 
 # Plot for each chromatin status file
-Cairo::CairoPDF("./figures/figure_chromatin_status_dynamics_v2.pdf", width = 10, height = 6)
+Cairo::CairoPDF("./figures/223_figure_chromatin_status_dynamics_v2.pdf", width = 10, height = 6)
 plot_chromatin_status("./tmp/table_gene_chromatin_status_by_celltype_me1.tsv", plot_title = "ME1")
 plot_chromatin_status("./tmp/table_gene_chromatin_status_by_celltype_me2.tsv", plot_title = "ME2")
 plot_chromatin_status("./tmp/table_gene_chromatin_status_by_celltype_me3.tsv", plot_title = "ME3")

@@ -1,3 +1,21 @@
+##################################################
+## Script: run_205_draw_imputed_gene_score_HSPC.R
+## Pourpose: draw imputed gene score on UMAP and boxplot for HSPC
+## INPUT: 
+##  - Inputed gene score matrix
+##  * matrix_imputed_gene_score_h3k4me1_from_h3k27me3_HSPC.rds
+##  * matrix_imputed_gene_score_h3k4me2_from_h3k27me3_HSPC.rds
+##  * matrix_imputed_gene_score_h3k4me3_from_h3k27me3_HSPC.rds
+##  * matrix_imputed_gene_score_h3k27me3_HSPC.rds
+##  - ArchR project of HSPC with H3K27me3 data
+##  * ./tmp/H3K27me3_coCnT_HSPC/
+## OUTPUT:
+## - UMAP plot of imputed gene score for example genes
+## * ./figures/205_imputed_umap_gene_score_example_HSPC.pdf
+## - Boxplot of imputed gene score for example genes
+## * ./figures/205_imputed_boxplot_gene_score_example_HSPC.pdf
+##
+
 library(data.table)
 library(ggplot2)
 library(ggpubr)
@@ -11,8 +29,6 @@ library(ArchR)
 addArchRGenome("hg38")
 addArchRThreads(threads = 11)
 color = ArchRPalettes$stallion
-
-httpgd::hgd(port = 4322)
 
 set.seed(123)
 
@@ -28,7 +44,7 @@ color_cluster = ArchRPalettes$stallion
 names(color_cluster) = c(
 	"C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8", "Other_cells"
 )
-ggplot(d_meta, aes(x = UMAP1, y = UMAP2, color = Clusters)) +
+p = ggplot(d_meta, aes(x = UMAP1, y = UMAP2, color = Clusters)) +
     geom_point(alpha = 0.5, size = 0.3) +
     scale_color_manual(values = color_cluster) +
     theme_classic() +
@@ -37,7 +53,7 @@ ggplot(d_meta, aes(x = UMAP1, y = UMAP2, color = Clusters)) +
 	axis.title = element_blank()
 	) +
     ggtitle("UMAP of HSPC - colored by clusters")
-ggsave("./figures/205_UMAP_HSPC_clusters.pdf", width = 5, height = 4)
+ggsave("./figures/205_UMAP_HSPC_clusters.pdf", p, width = 5, height = 4)
 
 
 ## imputed gene score

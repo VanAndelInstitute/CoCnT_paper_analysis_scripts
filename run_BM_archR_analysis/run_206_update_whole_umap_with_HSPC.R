@@ -1,3 +1,18 @@
+##################################################
+## Script: run_206_update_whole_umap_with_HSPC.R
+## Pourpose: update the whole UMAP with HSPC clusters
+## INPUT:
+## - ArchR project of whole BM with H3K27me3 data
+## * ./tmp/H3K27me3_coCnT_final3/
+## - ArchR project of HSPC with H3K27me3 data
+## * ./tmp/H3K27me3_coCnT_HSPC/
+## OUTPUT:
+## - Updated ArchR project of whole BM with H3K27me3 data
+## * ./tmp/H3K27me3_coCnT_final3/
+## - Updated ArchR project of HSPC with H3K27me3 data
+## * ./tmp/H3K27me3_coCnT_HSPC/
+## - UMAP plot of whole BM with HSPC clusters
+## * ./figures/206_UMAP_HSPC_clusters.pdf
 library(data.table)
 library(ggplot2)
 library(ggpubr)
@@ -28,20 +43,22 @@ d_meta_k27 = merge(d_meta_k27, d_meta_k27_HSPC[, .(cell_id, Clusters_HSPC = Clus
 proj_k27$Clusters_HSPC = d_meta_k27$Clusters_HSPC[match(proj_k27$cell_id, d_meta_k27$cell_id)]
 proj_k27$Clusters_HSPC[is.na(proj_k27$Clusters_HSPC)] = "Other_cells"
 
-# hspc_cluster2name = c(
-#     "C1" = "HSC&MPP",
-#     "C2" = "GMP",
-#     "C3" = "MEP",
-#     "C4" = "Erythroid progenitors1",
-#     "C5" = "Erythroid progenitors1",
-#     "C6" = "Pre-Pro-B cells",
-#     "C7" = "Myelocyte/Classical Monocytes1",
-#     "C8" = "Myelocyte/Classical Monocytes1"
-#     )
+hspc_cluster2name = c(
+    "C1" = "HSC&MPP",
+    "C2" = "GMP",
+    "C3" = "MEP",
+    "C4" = "Erythroid progenitors1",
+    "C5" = "Erythroid progenitors1",
+    "C6" = "Pre-Pro-B cells",
+    "C7" = "Myelocyte/Classical Monocytes1",
+    "C8" = "Myelocyte/Classical Monocytes1"
+    )
 
-# table(proj_k27$ct3)
+table(proj_k27$ct3)
 
-ct3 = proj_k27$Clusters_HSPC #%>% revalue(replace = hspc_cluster2name)
+proj_k27$Clusters_HSPC %>% table
+
+ct3 = proj_k27$Clusters_HSPC %>% revalue(replace = hspc_cluster2name)
 ct2 = proj_k27$ct2
 
 ct3[ct3 == "Other_cells"] = ct2[ct3 == "Other_cells"]
@@ -57,16 +74,6 @@ proj_k27_HSPC$Clusters_HSPC %>% table
 saveArchRProject(proj_k27, outputDirectory = "./tmp/H3K27me3_coCnT_final3/", load = F)
 saveArchRProject(proj_k27_HSPC, outputDirectory = "./tmp/H3K27me3_coCnT_HSPC/", load = F)
 
-httpgd::hgd(port = 4322)
-
-plotEmbedding(
-	ArchRProj = proj_k27_HSPC,
-	colorBy = "cellColData",
-	name = "Clusters_HSPC",
-	embedding = "UMAP_Harmony"
-	)
-
-
 pdf("./figures/206_UMAP_HSPC_clusters.pdf", width = 5, height = 4)
 plotEmbedding(
 	ArchRProj = proj_k27,
@@ -75,8 +82,3 @@ plotEmbedding(
 	embedding = "UMAP_Harmony"
 	)
 dev.off()
-
-plotTSSEnrichment(
-	ArchRProj = proj_k27_HSPC,
-	groupBy = "Clusters_HSPC"
-) + theme(legend.position = "right")

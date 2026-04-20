@@ -1,3 +1,24 @@
+##################################################
+## Script: run_204_imputation_gene_score_HSPC.R
+## Purpose: Impute gene score matrix
+## INPUT:
+##   - ArchR project for H3K27me3, H3K4me1, H3K4me2, H3K4me3 with HSPC annotaiton updated
+##   * ./tmp/H3K27me3_coCnT_HSPC/
+##   * ./tmp/H3K4me1_coCnT_HSPC/
+##   * ./tmp/H3K4me2_coCnT_HSPC/
+##   * ./tmp/H3K4me3_coCnT_HSPC/
+## OUTPUT:
+##  - Original gene score matrix for H3K27me3, H3K4me1, H3K4me2, H3K4me3
+##   * ./tmp/matrix_original_gene_score_h3k27me3_HSPC.rds
+##   * ./tmp/matrix_original_gene_score_h3k4me1_HSPC.rds
+##   * ./tmp/matrix_original_gene_score_h3k4me2_HSPC.rds
+##   * ./tmp/matrix_original_gene_score_h3k4me3_HSPC.rds
+##  - Imputed gene score matrix for H3K27me3, H3K4me1, H3K4me2, H3K4me3
+##   * ./tmp/matrix_imputed_gene_score_h3k27me3_HSPC.rds
+##   * ./tmp/matrix_imputed_gene_score_h3k4me1_from_h3k27me3_HSPC.rds
+##   * ./tmp/matrix_imputed_gene_score_h3k4me2_from_h3k27me3_HSPC.rds
+##   * ./tmp/matrix_imputed_gene_score_h3k4me3_from_h3k27me3_HSPC.rds
+##
 library(data.table)
 library(ggplot2)
 library(ggpubr)

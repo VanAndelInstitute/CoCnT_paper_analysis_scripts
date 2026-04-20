@@ -7,3 +7,4 @@ bk
 *.html
 *.spin.*
 */*.arrow
+*/QualityControl/

@@ -1,3 +1,14 @@
+## Script: run_212_trajectory_umap.R
+## Pourpose: plot the UMAP with the trajectory scores
+## INPUT:
+## - Updated metadata table with new cell type annotation and trajectory scores
+## * ./tmp/table_metadata_h3k27me3.tsv
+## - UMAP coordinates table
+## * ./tmp/table_umap_h3k27me3_final3.tsv
+## OUTPUT:
+## - UMAP plot with the trajectory scores
+## * ./figures/figure_umap_trajectory_h3k27me3_final3.pdf
+##
 library(data.table)
 library(ggplot2)
 library(ggpubr)
@@ -6,18 +17,12 @@ library(magrittr)
 library(readr)
 library(stringr)
 
-httpgd::hgd(port = 4322)
-
-d_meta = fread("./tmp/table_metadata_h3k27me3.tsv")
-d_umap = fread("./tmp/table_umap_h3k27me3_final3.tsv")
+d_meta = fread("./tmp/table_metadata_h3k4me27_final3_HSPC.tsv")
 
 
 table(d_meta$ct3)
 
-d_plot = cbind(
-	d_meta[, .(cell_id, Bcell_Trajectory, Monocyte_Trajectory, Erythroid_Trajectory, ct3)],
-	d_umap[, .(UMAP1, UMAP2)]
-)[ct3 %in% c(
+d_plot = d_meta[, .(cell_id, Bcell_Trajectory, Monocyte_Trajectory, Erythroid_Trajectory, ct3, UMAP1, UMAP2)][ct3 %in% c(
 	"HSC&MPP",
 	"Pre-Pro-B cells",
 	"Immature B cells",
@@ -34,6 +39,7 @@ d_plot = cbind(
 	"Erythroid progenitors2",
 	"Erythroid progenitors3"
 )]
+
 
 pal_B <- colorRampPalette(c("white", "#8c2693"))(100)
 pal_M <- colorRampPalette(c("white", "#8e3d19"))(100)
@@ -57,6 +63,6 @@ p = ggplot(d_plot2, aes(x = -UMAP1, y = UMAP2, color = color)) +
     theme_void() +
     theme(legend.position = "none")
 
-ggsave("./figures/figure_umap_trajectory_h3k27me3_final3.pdf", p, width = 6, height = 5)
+ggsave("./figures/212_figure_umap_trajectory_h3k27me3_final3.pdf", p, width = 6, height = 5)
 
 
