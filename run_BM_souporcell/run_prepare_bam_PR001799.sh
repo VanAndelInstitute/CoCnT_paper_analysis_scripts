@@ -11,7 +11,7 @@ set -euo pipefail
 
 threads=15
 
-in_dir="../data/Janssens_Lab_Data/BMMC_Beds/PR001799_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED"
+in_dir="../data/Janssens_Lab_Data/BMMC_Bams/PR001799_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BAM"
 out_dir="./tmp/PR001799_bam/"
 mkdir -p "$out_dir"
 

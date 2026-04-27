@@ -10,7 +10,7 @@
 ## - raw BED fragment files under ../data/Janssens_Lab_Data/BMMC_Beds/*/BED/
 ## Outputs:
 ## - ./tmp/all_fragments.rds
-## - ../tmp/cell_fragments.tsv
+## - ./tmp/cell_fragments.tsv
 
 library(data.table)
 library(ggplot2)
