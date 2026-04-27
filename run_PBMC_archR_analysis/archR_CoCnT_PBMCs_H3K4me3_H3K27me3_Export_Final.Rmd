@@ -1,0 +1,383 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+## PBMC H3K4me3 H3K27me3 Export Files
+
+### Input Files
+
+- `./tmp/ArchRProject_PBMCs_Combined_Beds_H3K27me3_Doublets_Removed_021126`
+- `./tmp/ArchRProject_PBMCs_Combined_Beds_H3K4me3_Doublets_Removed_021126`
+
+### Output Files And Directories
+
+- `proj_K27me3_barcodes_NewClusters.tsv`
+- `proj_K4me3_barcodes_NewClusters.tsv`
+- `./tmp/Export_K27me3_PBMCs_Combined_Beds_Harmony_021126/`
+- `./tmp/Export_K27me3_PBMCs_Combined_Beds_Harmony_021126/svd.csv`
+- `./tmp/Export_K27me3_PBMCs_Combined_Beds_Harmony_021126/umap_harmony.csv`
+- `./tmp/Export_K27me3_PBMCs_Combined_Beds_Harmony_021126/cell_metadata.csv`
+- `./tmp/Export_K27me3_PBMCs_Combined_Beds_Harmony_021126/gene_scores/`
+- `./tmp/Export_K27me3_PBMCs_Combined_Beds_Harmony_021126/gene_scores/scores.mtx`
+- `./tmp/Export_K27me3_PBMCs_Combined_Beds_Harmony_021126/gene_scores/cells.csv`
+- `./tmp/Export_K27me3_PBMCs_Combined_Beds_Harmony_021126/gene_scores/genes.csv`
+- `./tmp/Export_K4me3_PBMCs_Combined_Beds_Harmony_021126/`
+- `./tmp/Export_K4me3_PBMCs_Combined_Beds_Harmony_021126/svd.csv`
+- `./tmp/Export_K4me3_PBMCs_Combined_Beds_Harmony_021126/umap_harmony.csv`
+- `./tmp/Export_K4me3_PBMCs_Combined_Beds_Harmony_021126/cell_metadata.csv`
+- `./tmp/Export_K4me3_PBMCs_Combined_Beds_Harmony_021126/gene_scores/`
+- `./tmp/Export_K4me3_PBMCs_Combined_Beds_Harmony_021126/gene_scores/scores.mtx`
+- `./tmp/Export_K4me3_PBMCs_Combined_Beds_Harmony_021126/gene_scores/cells.csv`
+- `./tmp/Export_K4me3_PBMCs_Combined_Beds_Harmony_021126/gene_scores/genes.csv`
+
+
+```{r}
+Sys.unsetenv("DISPLAY")
+
+suppressPackageStartupMessages({
+    library(ArchR)
+    library(parallel)
+    library(rtracklayer)
+    library(repr)
+    library(dplyr)
+    library(plyr)
+    library(Seurat)
+    library(ggplot2)
+    library(GenomicRanges)
+    library(rtracklayer)
+})
+set.seed(1)
+
+# Set default plot size
+options(repr.plot.width = 10, repr.plot.height = 10)
+```
+
+
+```{r}
+addArchRThreads(threads = 24)
+addArchRGenome("hg38")
+```
+
+```{r}
+proj_K27me3 <- loadArchRProject(path = "./ArchRProject_PBMCs_Combined_Beds_H3K27me3_Doublets_Removed_021126", force = FALSE, showLogo = TRUE)
+
+getEmbedding(ArchRProj = proj_K27me3, embedding = "UMAP_Harmony", returnDF = TRUE)
+```
+
+```{r}
+proj_K27me3 <- addClusters(
+    input = proj_K27me3,
+    method = "Seurat",
+    name = "Clusters",
+    reducedDims = "Harmony",
+    resolution = 1,
+    maxClusters = 10,
+    verbose = FALSE,
+    force = TRUE
+)
+```
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj_K27me3, colorBy = "cellColData",
+    name = "Clusters",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+
+```{r}
+# CLustering for resolution = 1, maxClusters = 15
+
+## I USED THIS ONE##
+
+proj_K27me3$NewClusters <- ifelse(proj_K27me3$Clusters %in% c("C3", "C6", "C7", "C8", "C10"), "TCell",
+    ifelse(proj_K27me3$Clusters %in% c("C1"), "Monocyte",
+        ifelse(proj_K27me3$Clusters %in% c("C4", "C5"), "BCell",
+            ifelse(proj_K27me3$Clusters %in% c("C2", "C9"), "NKCell",
+                "Other"
+            )
+        )
+    )
+)
+
+# Check the new clusters
+table(proj_K27me3$NewClusters)
+```
+
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj_K27me3, colorBy = "cellColData",
+    name = "NewClusters",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+```{r}
+# 1) Extract barcodes + NewClusters
+df_clusters <- data.frame(
+    barcode = rownames(getCellColData(proj_K27me3)),
+    NewClusters = getCellColData(proj_K27me3)$NewClusters,
+    stringsAsFactors = FALSE
+)
+
+# (optional) sanity check
+table(df_clusters$NewClusters)
+
+# 2) Write out
+write.table(
+    df_clusters,
+    file = "proj_K27me3_barcodes_NewClusters.tsv",
+    sep = "\t",
+    quote = FALSE,
+    row.names = FALSE
+)
+```
+
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj_K27me3, colorBy = "cellColData",
+    name = "Clusters",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+```{r}
+# proj_K27me3 <- addGeneScoreMatrix(proj_K27me3, force = TRUE) #, , useTSS = TRUE
+
+# proj_K27me3 <- addImputeWeights(proj_K27me3)
+```
+
+```{r}
+proj_K4me3 <- loadArchRProject(path = "./tmp/ArchRProject_PBMCs_Combined_Beds_H3K4me3_Doublets_Removed_021126", force = FALSE, showLogo = TRUE)
+
+getEmbedding(ArchRProj = proj_K4me3, embedding = "UMAP_Harmony", returnDF = TRUE)
+```
+
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj_K4me3, colorBy = "cellColData",
+    name = "Clusters",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+
+```{r}
+proj_K4me3 <- addClusters(
+    input = proj_K4me3,
+    method = "Seurat",
+    name = "Clusters",
+    reducedDims = "Harmony",
+    resolution = 1,
+    maxClusters = 10,
+    verbose = FALSE,
+    force = TRUE
+)
+```
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj_K4me3, colorBy = "cellColData",
+    name = "Clusters",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+
+```{r}
+# CLustering for resolution = 1, maxClusters = 15
+
+## I USED THIS ONE##
+
+proj_K4me3$NewClusters <- ifelse(proj_K4me3$Clusters %in% c("C4", "C5", "C6", "C7", "C8", "C9", "C10"), "TCell",
+    ifelse(proj_K4me3$Clusters %in% c("C1"), "Monocyte",
+        ifelse(proj_K4me3$Clusters %in% c("C3"), "BCell",
+            ifelse(proj_K4me3$Clusters %in% c("C2"), "NKCell",
+                "Other"
+            )
+        )
+    )
+)
+
+# Check the new clusters
+table(proj_K4me3$NewClusters)
+```
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj_K4me3, colorBy = "cellColData",
+    name = "NewClusters",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+
+
+```{r}
+# 1) Extract barcodes + NewClusters
+df_clusters <- data.frame(
+    barcode = rownames(getCellColData(proj_K4me3)),
+    NewClusters = getCellColData(proj_K4me3)$NewClusters,
+    stringsAsFactors = FALSE
+)
+
+# (optional) sanity check
+table(df_clusters$NewClusters)
+
+# 2) Write out
+write.table(
+    df_clusters,
+    file = "proj_K4me3_barcodes_NewClusters.tsv",
+    sep = "\t",
+    quote = FALSE,
+    row.names = FALSE
+)
+```
+
+
+
+
+
+
+
+```{r}
+# 1. Extract barcodes
+proj_K27me3$bc <- sapply(strsplit(proj_K27me3$cellNames, "#"), `[`, 2)
+proj_K4me3$bc <- sapply(strsplit(proj_K4me3$cellNames, "#"), `[`, 2)
+
+# 2. Remove duplicate barcodes
+proj_K27me3 <- proj_K27me3[!duplicated(proj_K27me3$bc)]
+proj_K4me3 <- proj_K4me3[!duplicated(proj_K4me3$bc)]
+
+# 3. Intersect barcodes
+common_barcodes <- intersect(proj_K27me3$bc, proj_K4me3$bc)
+
+# 4. Subset to shared barcodes only
+proj_K27me3 <- proj_K27me3[proj_K27me3$bc %in% common_barcodes]
+proj_K4me3 <- proj_K4me3[proj_K4me3$bc %in% common_barcodes]
+
+# 5. Sort by barcode to ensure matched ordering
+proj_K27me3 <- proj_K27me3[order(proj_K27me3$bc)]
+proj_K4me3 <- proj_K4me3[order(proj_K4me3$bc)]
+
+# 6. Final check
+stopifnot(identical(proj_K27me3$bc, proj_K4me3$bc))
+```
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj_K27me3, colorBy = "cellColData",
+    name = "Clusters",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+```{r}
+# Get the total number of cells in the ArchR project
+num_cells <- nCells(proj_K27me3)
+
+# Print the number of cells
+cat("Number of cells in the ArchR project:", num_cells, "\n")
+```
+
+
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj_K4me3, colorBy = "cellColData",
+    name = "Clusters",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+```{r}
+# Get the total number of cells in the ArchR project
+num_cells <- nCells(proj_K4me3)
+
+# Print the number of cells
+cat("Number of cells in the ArchR project:", num_cells, "\n")
+```
+
+
+```{r}
+### THIS ONE EXPORTS THE HARMONIZED EMBEDDING ###
+
+export_proj <- function(proj, out_dir) {
+    dir.create(file.path(out_dir, "gene_scores"), showWarnings = FALSE, recursive = TRUE)
+
+    # Export metadata and reduced dimensions
+    write.csv(getReducedDims(proj), file.path(out_dir, "svd.csv"), quote = FALSE)
+
+    # Export UMAP on Harmony embedding (not default UMAP)
+    harmony_umap <- getEmbedding(proj, embedding = "UMAP_Harmony")
+    write.csv(harmony_umap, file.path(out_dir, "umap_harmony.csv"), quote = FALSE)
+
+    # Export cell metadata
+    write.csv(getCellColData(proj), file.path(out_dir, "cell_metadata.csv"), quote = FALSE)
+
+    # Export gene scores
+    gene_scores <- getMatrixFromProject(proj, useMatrix = "GeneScoreMatrix")
+    score_matrix <- assays(gene_scores)[["GeneScoreMatrix"]]
+
+    writeMM(score_matrix, file.path(out_dir, "gene_scores", "scores.mtx"))
+    write.csv(colnames(score_matrix), file.path(out_dir, "gene_scores", "cells.csv"), quote = FALSE, row.names = FALSE)
+    write.csv(rowData(gene_scores)$name, file.path(out_dir, "gene_scores", "genes.csv"), quote = FALSE, row.names = FALSE)
+}
+```
+
+```{r}
+export_proj(proj_K27me3, "./tmp/Export_K27me3_PBMCs_Combined_Beds_Harmony_021126")
+export_proj(proj_K4me3, "./tmp/Export_K4me3_PBMCs_Combined_Beds_Harmony_021126")
+```
+
+H3K4me3_Doublets_Removed_010126

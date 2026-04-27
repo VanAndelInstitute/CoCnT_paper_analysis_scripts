@@ -1,0 +1,764 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+## PBMC H3K4me3 H3K27me3 Cluster Analysis Files
+
+### Input Files
+
+- `./tmp/PBMCs_Combined_Beds_H3K4me3_Doublets_Removed_021126/`
+- `./tmp/PBMCs_Combined_Beds_H3K27me3_Doublets_Removed_021126/`
+- `../data/PBMC_WNN_cluster_assignments_021126.tsv`
+
+### Output Files And Directories
+
+- `./figures/paired_cells_umap_H23_vs_H12_n30_seed2.png`
+- `./figures/H3K4_vs_H3K27_ECDF_plot.png`
+- `./figures/H3K4_vs_H3K27_boxplot_pval.pdf`
+- `./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/`
+- `./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_TCell_Naive_FDR_0.05_Log2FC_1.csv`
+- `./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_TCell_Reg_Exhausted_FDR_0.05_Log2FC_1.csv`
+- `./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_TCell_CM_FDR_0.05_Log2FC_1.csv`
+- `./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_TCell_4_FDR_0.05_Log2FC_1.csv`
+- `./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_BCell_1_FDR_0.05_Log2FC_1.csv`
+- `./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_BCell_2_FDR_0.05_Log2FC_1.csv`
+- `./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_Monocyte_FDR_0.05_Log2FC_1.csv`
+- `./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_NKCell_1_FDR_0.05_Log2FC_1.csv`
+- `./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_NKCell_2_FDR_0.05_Log2FC_1.csv`
+- `./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_Cytotoxic_FDR_0.05_Log2FC_1.csv`
+
+
+```{r}
+Sys.unsetenv("DISPLAY")
+
+suppressPackageStartupMessages({
+    library(ArchR)
+    library(parallel)
+    library(rtracklayer)
+    library(repr)
+    library(dplyr)
+    library(plyr)
+    library(Seurat)
+    library(ggplot2)
+    library(GenomicRanges)
+    library(rtracklayer)
+
+})
+set.seed(1)
+
+# Set default plot size
+options(repr.plot.width=10, repr.plot.height=10)
+```
+
+
+```{r}
+addArchRThreads(threads = 24)
+addArchRGenome('hg38')
+```
+
+
+
+```{r}
+proj <- loadArchRProject(path = "./tmp/ArchRProject/PBMCs_Combined_Beds_H3K4me3_Doublets_Removed_021126/", force = FALSE, showLogo = TRUE)
+
+getEmbedding(ArchRProj = proj, embedding = "UMAP_Harmony", returnDF = TRUE)
+
+```
+
+
+```{r}
+unique(proj$Sample)
+
+```
+
+
+
+```{r}
+#Visualize clusters
+plotEmbedding(ArchRProj = proj, colorBy = "cellColData", 
+              name = "Clusters", 
+              embedding = "UMAP_Harmony", 
+              size =0.5, 
+              #pal= paletteContinuous(), 
+              plotAs= "points", 
+              #imputeWeights = getImputeWeights(proj),
+              colorTitle = 'mark'
+             )+theme_void()+theme(plot.title = element_blank())#+ NoLegend()
+```
+```{r}
+library(ggplot2)
+
+# ------------------------------------------------------------
+# Helper: sample N paired barcodes between two samples and plot
+#   - all cells in light grey
+#   - paired cells overlaid (bigger points)
+#   - black line connecting each paired A/B cell
+# ------------------------------------------------------------
+plotPairedCellsOnUMAP <- function(
+  proj,
+  sample_A = "PBMC_CoCnT_K4me3_H23_010126",
+  sample_B = "PBMC_CoCnT_K4me3_H12_010126",
+  n_pairs  = 15,
+  col_A    = "#1E90FF",
+  col_B    = "#FF00FF",
+  base_grey = "grey85",
+  base_size = 0.3,
+  overlay_size = 0.35,   # will be tripled below (so default behaves like before but 3x)
+  seed = 2,
+  embedding = "UMAP_Harmony"
+) {
+
+  # ---- pull UMAP and align to proj cellNames ----
+  umap_mat <- proj@embeddings[[embedding]]$df
+  umap_mat <- umap_mat[proj$cellNames, , drop = FALSE]
+
+  meta <- as.data.frame(proj@cellColData)
+  meta <- meta[proj$cellNames, , drop = FALSE]
+
+  df <- meta
+  df$UMAP_1 <- umap_mat[, 1]
+  df$UMAP_2 <- umap_mat[, 2]
+  df$cell   <- rownames(df)
+
+  # ---- extract "suffix after #" for pairing ----
+  df$barcode_suffix <- sub("^.*#", "", df$cell)
+
+  # ---- subset the two samples ----
+  if (!"Sample" %in% colnames(df)) {
+    stop("proj@cellColData must contain a column named 'Sample'.")
+  }
+
+  dfA <- df[df$Sample == sample_A, , drop = FALSE]
+  dfB <- df[df$Sample == sample_B, , drop = FALSE]
+
+  # ---- find paired suffixes present in both ----
+  common_suffix <- intersect(unique(dfA$barcode_suffix), unique(dfB$barcode_suffix))
+  if (length(common_suffix) == 0) stop("No paired barcodes found between these samples.")
+
+  # ---- choose how many pairs to plot ----
+  set.seed(seed)
+  n_pairs <- min(n_pairs, length(common_suffix))
+  picked_suffix <- sample(common_suffix, n_pairs)
+
+  # ---- pick one cell from each sample per suffix (in case duplicates exist) ----
+  pick_one <- function(d, suffix_vec) {
+    out <- lapply(suffix_vec, function(suf) {
+      dd <- d[d$barcode_suffix == suf, , drop = FALSE]
+      dd[sample(seq_len(nrow(dd)), 1), , drop = FALSE]
+    })
+    do.call(rbind, out)
+  }
+
+  overlayA <- pick_one(dfA, picked_suffix)
+  overlayB <- pick_one(dfB, picked_suffix)
+
+  # ---- build "segments" data for connecting lines ----
+  overlayA$key <- overlayA$barcode_suffix
+  overlayB$key <- overlayB$barcode_suffix
+
+  seg_df <- merge(
+    overlayA[, c("key", "UMAP_1", "UMAP_2")],
+    overlayB[, c("key", "UMAP_1", "UMAP_2")],
+    by = "key",
+    suffixes = c("_A", "_B")
+  )
+
+  # ---- triple the overlay point size ----
+  overlay_size <- overlay_size * 10
+
+  # ---- plot: grey background, then black lines, then big colored points ----
+  p <- ggplot(df, aes(UMAP_1, UMAP_2)) +
+    geom_point(color = base_grey, size = base_size) +
+    geom_segment(
+      data = seg_df,
+      aes(x = UMAP_1_A, y = UMAP_2_A, xend = UMAP_1_B, yend = UMAP_2_B),
+      color = "black",
+      linewidth = 1.5
+    ) +
+    geom_point(data = overlayA, aes(UMAP_1, UMAP_2), color = col_A, size = overlay_size) +
+    geom_point(data = overlayB, aes(UMAP_1, UMAP_2), color = col_B, size = overlay_size) +
+    theme_void() +
+    theme(
+      legend.position = "none",
+      plot.margin = margin(5, 30, 5, 5)
+    ) +
+    ggtitle(paste0("Paired cells (n=", n_pairs, ")  ", sample_A, " vs ", sample_B))
+
+  return(list(
+    plot = p,
+    picked_suffix = picked_suffix,
+    segments = seg_df,
+    overlayA = overlayA,
+    overlayB = overlayB
+  ))
+}
+
+```
+
+
+```{r}
+# -------------------------
+# Example: start with 10
+# -------------------------
+# Run
+res <- plotPairedCellsOnUMAP(
+  proj,
+  sample_A = "PBMC_CoCnT_K4me3_H23_010126",
+  sample_B = "PBMC_CoCnT_K4me3_H12_010126",
+  n_pairs = 10,
+  seed = 20 #55 #60 #30 #20
+)
+
+# Save as PNG
+ggsave(
+  filename = "./figures/paired_cells_umap_H23_vs_H12_n30_seed2.png",
+  plot = res$plot,
+  width = 6,
+  height = 8,
+  dpi = 300
+)
+
+# Display
+res$plot
+
+
+```
+
+```{r}
+proj_K4me3 <- loadArchRProject(path = "./tmp/ArchRProject_PBMCs_Combined_Beds_H3K4me3_Doublets_Removed_021126/", force = FALSE, showLogo = TRUE)
+
+getEmbedding(ArchRProj = proj_K4me3, embedding = "UMAP_Harmony", returnDF = TRUE)
+
+```
+
+
+```{r}
+unique(proj_K4me3$Sample)
+
+```
+
+```{r}
+## The original is ArchRProject_PBMCs_Combined_Beds_H3K27me3_Doublets_Removed_021126_V2
+proj_K27me3 <- loadArchRProject(path = "./tmp/ArchRProject_PBMCs_Combined_Beds_H3K27me3_Doublets_Removed_021126/", force = FALSE, showLogo = TRUE)
+
+getEmbedding(ArchRProj = proj_K27me3, embedding = "UMAP_Harmony", returnDF = TRUE)
+
+```
+
+```{r}
+unique(proj_K27me3$Sample)
+
+```
+
+"PBMC_CoCnT_K27me3_H1_010126"
+"PBMC_CoCnT_K27me3_H19_010126"
+
+```{r}
+# -------------------------
+# Example: start with 10
+# -------------------------
+# Run
+res <- plotPairedCellsOnUMAP(
+  proj_K27me3,
+  sample_A = "PBMC_CoCnT_K27me3_H1_010126",
+  sample_B = "PBMC_CoCnT_K27me3_H19_010126",
+  n_pairs = 10,
+  seed = 1 #55 #60 #30 #20
+)
+
+# Save as PNG
+ggsave(
+  filename = "./figures/H3K27me3_paired_cells_umap_H1_vs_H19.png",
+  plot = res$plot,
+  width = 6,
+  height = 8,
+  dpi = 300
+)
+
+# Display
+res$plot
+
+
+```
+
+
+
+
+```{r}
+rd_obj <- proj@reducedDims[["Harmony"]]
+class(rd_obj)
+if (methods::is(rd_obj, "S4")) methods::slotNames(rd_obj)
+str(rd_obj, max.level = 2)
+head(rownames(get_rd_matrix(rd_obj)))
+head(proj$cellNames)
+
+```
+
+
+```{r}
+rd_obj <- proj@reducedDims[["Harmony"]]
+
+class(rd_obj)
+names(rd_obj)
+sapply(rd_obj, class)
+
+# show dimensions where possible
+dims <- lapply(rd_obj, function(x) {
+  if (is.matrix(x) || is.data.frame(x)) return(dim(x))
+  if (inherits(x, "Matrix")) return(dim(x))
+  return(NA)
+})
+dims
+
+```
+
+```{r}
+get_rd_matrix <- function(rd_obj) {
+
+  # If Harmony reduced dims are stored as a SimpleList (your case)
+  if (inherits(rd_obj, "SimpleList")) {
+    if ("matDR" %in% names(rd_obj)) {
+      return(as.matrix(rd_obj[["matDR"]]))
+    }
+    stop("ReducedDims is a SimpleList but has no 'matDR' element. names(rd_obj): ", paste(names(rd_obj), collapse=", "))
+  }
+
+  # Already matrix / data.frame / sparse Matrix
+  if (is.matrix(rd_obj)) return(rd_obj)
+  if (is.data.frame(rd_obj)) return(as.matrix(rd_obj))
+  if (inherits(rd_obj, "Matrix")) return(as.matrix(rd_obj))
+
+  # Lists that store mat/df
+  if (is.list(rd_obj)) {
+    if (!is.null(rd_obj$mat)) return(as.matrix(rd_obj$mat))
+    if (!is.null(rd_obj$df))  return(as.matrix(rd_obj$df))
+  }
+
+  # Generic S4 objects with slots
+  if (methods::is(rd_obj, "S4")) {
+    sn <- methods::slotNames(rd_obj)
+    if ("mat" %in% sn) return(as.matrix(methods::slot(rd_obj, "mat")))
+    if ("df"  %in% sn) return(as.matrix(methods::slot(rd_obj, "df")))
+  }
+
+  stop("Don't know how to extract a matrix from reduced_dim object of class: ",
+       paste(class(rd_obj), collapse=", "))
+}
+
+```
+
+```{r}
+rd <- get_rd_matrix(proj@reducedDims[["Harmony"]])
+dim(rd)         # should be 14851 x 15
+head(rownames(rd))
+
+```
+
+
+```{r}
+get_pairs_from_suffix <- function(df, sample_A, sample_B, sample_col = "Sample") {
+  df$cell <- rownames(df)
+  df$suffix <- sub("^.*#", "", df$cell)
+
+  A <- df[df[[sample_col]] == sample_A, c("cell", "suffix"), drop = FALSE]
+  B <- df[df[[sample_col]] == sample_B, c("cell", "suffix"), drop = FALSE]
+
+  common <- intersect(unique(A$suffix), unique(B$suffix))
+  if (length(common) == 0) stop("No shared suffixes found between sample_A and sample_B")
+
+  A1 <- A[A$suffix %in% common, , drop = FALSE]
+  B1 <- B[B$suffix %in% common, , drop = FALSE]
+  A1 <- A1[!duplicated(A1$suffix), , drop = FALSE]
+  B1 <- B1[!duplicated(B1$suffix), , drop = FALSE]
+
+  merge(A1, B1, by = "suffix", suffixes = c("_A", "_B"))
+}
+
+pair_closeness_score <- function(
+  proj,
+  sample_A,
+  sample_B,
+  reduced_dim = "Harmony",
+  dims_use = 1:15,         # Harmony has 15 dims in your object
+  n_other = 5000,
+  seed = 1,
+  leq = TRUE,
+  pool = c("union_samples", "all_cells")
+) {
+  pool <- match.arg(pool)
+
+  # metadata aligned to proj$cellNames
+  meta <- as.data.frame(proj@cellColData)
+  meta <- meta[proj$cellNames, , drop = FALSE]
+  if (!"Sample" %in% colnames(meta)) stop("Need meta column 'Sample' in proj@cellColData")
+
+  # reduced dims matrix
+  rd_obj <- proj@reducedDims[[reduced_dim]]
+  if (is.null(rd_obj)) stop(paste0("proj@reducedDims[['", reduced_dim, "']] not found"))
+  rd <- get_rd_matrix(rd_obj)
+
+  # Align by shared cell names
+  common_cells <- intersect(rownames(rd), rownames(meta))
+  if (length(common_cells) < 10) stop("Too few shared cell names between reducedDims and metadata.")
+
+  rd   <- rd[common_cells, , drop = FALSE]
+  meta <- meta[common_cells, , drop = FALSE]
+
+  dims_use <- dims_use[dims_use <= ncol(rd)]
+  if (length(dims_use) < 2) stop("dims_use has <2 valid dims after checking reducedDims columns.")
+
+  X <- rd[, dims_use, drop = FALSE]
+  all_cells <- rownames(X)
+
+  # pairs
+  pairs <- get_pairs_from_suffix(meta, sample_A, sample_B, sample_col = "Sample")
+
+  # pool for "other cells"
+  pool_cells <- if (pool == "union_samples") {
+    all_cells[meta$Sample %in% c(sample_A, sample_B)]
+  } else {
+    all_cells
+  }
+  pool_idx <- match(pool_cells, all_cells)
+  pool_idx <- pool_idx[!is.na(pool_idx)]
+  if (length(pool_idx) < 10) stop("Pool has too few cells. Check sample names.")
+
+  # map pair cells to indices
+  idx_A <- match(pairs$cell_A, all_cells)
+  idx_B <- match(pairs$cell_B, all_cells)
+  ok <- !(is.na(idx_A) | is.na(idx_B))
+  pairs <- pairs[ok, , drop = FALSE]
+  idx_A <- idx_A[ok]
+  idx_B <- idx_B[ok]
+  if (nrow(pairs) == 0) stop("No valid pairs after matching to reducedDims rownames.")
+
+  if (!is.null(seed)) set.seed(seed)
+
+  euclid_vec <- function(xi, M) {
+    diffs <- M - matrix(xi, nrow = nrow(M), ncol = length(xi), byrow = TRUE)
+    sqrt(rowSums(diffs^2))
+  }
+
+  s_for_cell <- function(i_idx, partner_idx) {
+    xi <- X[i_idx, ]
+
+    candidate <- pool_idx[pool_idx != i_idx & pool_idx != partner_idx]
+    if (length(candidate) == 0) return(NA_real_)
+
+    m <- min(n_other, length(candidate))
+    others <- sample(candidate, m, replace = FALSE)
+
+    d_pair <- sqrt(sum((xi - X[partner_idx, ])^2))
+    d_others <- euclid_vec(xi, X[others, , drop = FALSE])
+
+    if (leq) mean(d_others <= d_pair) else mean(d_others < d_pair)
+  }
+
+  s_A <- mapply(s_for_cell, idx_A, idx_B)
+  s_B <- mapply(s_for_cell, idx_B, idx_A)
+
+  out <- data.frame(
+    suffix = pairs$suffix,
+    cell_A = pairs$cell_A,
+    cell_B = pairs$cell_B,
+    s_A = as.numeric(s_A),
+    s_B = as.numeric(s_B),
+    stringsAsFactors = FALSE
+  )
+  out$S_pair <- rowMeans(out[, c("s_A", "s_B")], na.rm = TRUE)
+  out
+}
+
+```
+
+```{r}
+# K4 project
+scores_K4 <- pair_closeness_score(
+  proj = proj_K4me3,  # <- your K4 ArchR project object
+  sample_A = "PBMC_CoCnT_K4me3_H23_010126",
+  sample_B = "PBMC_CoCnT_K4me3_H12_010126",
+  reduced_dim = "Harmony",
+  dims_use = 1:15,       # your Harmony has 15 dims
+  n_other = 5000,
+  seed = 1,
+  leq = TRUE,
+  pool = "union_samples"
+)
+scores_K4$assay <- "K4-K4"
+
+# K27 project (edit sample names!)
+scores_K27 <- pair_closeness_score(
+  proj = proj_K27me3,  # <- your K27 ArchR project object
+  sample_A = "PBMC_CoCnT_K27me3_H1_010126",  
+  sample_B = "PBMC_CoCnT_K27me3_H19_010126",
+  reduced_dim = "Harmony",
+  dims_use = 1:15,
+  n_other = 5000,
+  seed = 1,
+  leq = TRUE,
+  pool = "union_samples"
+)
+scores_K27$assay <- "K27-K27"
+
+```
+
+  
+  
+```{r}
+df_all$assay <- factor(df_all$assay, levels = c("K4-K4", "K27-K27"))
+
+p_ecdf <- ggplot(df_all, aes(x = S_pair, color = assay)) +
+  stat_ecdf(linewidth = 2) +
+  coord_fixed(ratio = 1) +
+  theme_classic() +
+  theme(
+    axis.line  = element_line(linewidth = 2),
+    axis.ticks = element_line(linewidth = 2),
+    axis.ticks.length = grid::unit(0.25, "cm"),
+    axis.text  = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    plot.title = element_text(size = 16),
+    legend.position = c(0.68, 0.22),
+    legend.background = element_rect(fill = scales::alpha("white", 0.7), color = NA),
+    legend.key = element_rect(fill = NA, color = NA),
+    legend.title = element_blank(),
+    legend.text  = element_text(size = 11)
+  ) +
+  labs(
+    x = "S_pair (fraction of sampled cells closer/equal than true partner; lower = better)",
+    y = "ECDF",
+    title = "Pair closeness in Harmony space: K4–K4 vs K27–K27"
+  ) +
+  scale_color_manual(values = c(
+    "K4-K4"   = "#C93F2F",
+    "K27-K27" = "#3F78A8"
+  ))
+
+print(p_ecdf)
+
+ggsave(
+  filename = "./figures/H3K4_vs_H3K27_ECDF_plot.png",
+  plot = p_ecdf,
+  width = 6,
+  height = 6,
+  dpi = 300
+)
+```
+```{r}
+p_box <- ggplot(df_all, aes(x = assay, y = S_pair, fill = assay)) +
+  geom_boxplot(
+    width = 0.75,
+    outlier.shape = NA,
+    linewidth = 0.8,
+    color = "black"
+  ) +
+  scale_fill_manual(values = assay_cols) +
+  theme_classic() +
+  theme(
+    axis.line  = element_line(linewidth = 2),
+    axis.ticks = element_line(linewidth = 2),
+    axis.ticks.length = grid::unit(0.25, "cm"),
+    axis.text  = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    plot.title = element_text(size = 16)
+  ) +
+  labs(
+    x = NULL,
+    y = "S_pair",
+    title = "Pair closeness score (lower = better)"
+  ) +
+  ylim(0, 1) +
+  annotate("text", x = 1.5, y = 0.95, label = pval_txt, size = 4)
+
+# PDF (vector; no dpi needed)
+ggsave(
+  filename = "./figures/H3K4_vs_H3K27_boxplot_pval.pdf",
+  plot = p_box,
+  width = 3,
+  height = 6,
+  device = cairo_pdf
+)
+
+print(p_box)
+
+```
+
+```{r}
+add_wnn_clusters <- function(proj, cluster_file) {
+  # Extract pure barcodes from ArchR cell names
+  barcodes <- sapply(strsplit(proj$cellNames, "#"), `[`, 2)
+  proj$barcode <- barcodes
+
+  # Read the cluster assignments from Python
+  cluster_data <- read.table(
+    cluster_file,
+    header = TRUE,
+    sep = "\t",
+    stringsAsFactors = FALSE
+  )
+
+  # Keep only matching cells
+  matched <- cluster_data[cluster_data$barcode %in% proj$barcode, ]
+  matched <- matched[match(proj$barcode, matched$barcode), ]  # reorder
+
+  # Add to ArchR project
+  proj$WNN_Cluster <- matched$cluster
+
+  # Subset project to only cells in the WNN set
+  proj <- subsetCells(proj, cellNames = proj$cellNames[!is.na(proj$WNN_Cluster)])
+
+  return(proj)
+}
+
+```
+
+```{r}
+proj <- add_wnn_clusters(
+  proj,
+  "./tmp/PBMC_WNN_cluster_assignments_021126.tsv"
+)
+```
+
+"TCell_Naive":   '#016D4F',
+    "TCell_Reg_Exhausted":   '#66C2A5',
+    "TCell_CM":   '#A6D854',
+    "BCell_1":   "#56B4E9",
+    "BCell_2":   "#1F78B4",
+    "Monocyte":  "#CC79A7",
+    "NKCell_1":  "#F0C300",
+    "NKCell_2":  "#E69F00",
+    #"NKCell_3":  "#D55E00",
+    "Cytotoxic":   "#984EA3"
+
+
+```{r}
+wnn_colors <- c(
+  "TCell_Naive" = "#016D4F",
+  "TCell_Reg_Exhausted" = "#66C2A5",
+  "TCell_CM" = "#A6D854",
+  #"TCell_4" = "#009E73",
+  "BCell_1" = "#56B4E9",
+  "BCell_2" = "#1F78B4",
+  "Monocyte" = "#CC79A7",
+  "NKCell_1" = "#F0C300",
+  "NKCell_2" = "#E69F00",
+  #"NKCell_3" = "#D55E00",
+  "Cytotoxic" = "#984EA3"
+)
+
+# Get UMAP matrix
+umap_mat <- proj@embeddings$UMAP_Harmony$df
+
+# Match UMAP rows to the filtered proj$cellNames
+umap_mat <- umap_mat[proj$cellNames, , drop = FALSE]
+
+# Now you can safely assign
+umap_df <- as.data.frame(proj@cellColData)
+umap_df$UMAP_1 <- umap_mat[, 1]
+umap_df$UMAP_2 <- umap_mat[, 2]
+
+# Set cluster factor (optional ordering)
+umap_df$WNN_Cluster <- factor(umap_df$WNN_Cluster, levels = names(wnn_colors))
+
+# Reorder for layered plotting
+umap_df <- umap_df[order(umap_df$WNN_Cluster), ]
+
+# Plot
+ggplot(umap_df, aes(x = UMAP_1, y = UMAP_2, color = WNN_Cluster)) +
+  geom_point(size = 0.2) +
+  theme_void() +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(size = 10, face = "bold"),
+    legend.text = element_text(size = 9),
+    plot.margin = margin(5, 30, 5, 5)
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 2))) +
+  scale_color_manual(
+    name = "WNN Cluster",
+    values = wnn_colors
+  )
+
+```
+```{r}
+# Get the total number of cells in the ArchR project
+num_cells <- nCells(proj)
+
+# Print the number of cells
+cat("Number of cells in the ArchR project:", num_cells, "\n")
+
+```
+
+```{r}
+proj <- addGeneScoreMatrix(proj, force = TRUE) #useTSS = FALSE, 
+
+proj <- addImputeWeights(proj)
+```
+
+
+```{r}
+#proj$
+
+markersGS <- getMarkerFeatures(
+    ArchRProj = proj, 
+    useMatrix = "GeneScoreMatrix", 
+    groupBy = "WNN_Cluster",
+    bias = c("TSSEnrichment","log10(nFrags)"),
+   testMethod = "wilcoxon",
+   #maxCells = 500,
+   #scaleTo = 10^4,
+   #threads = getArchRThreads(),
+   #k = 100, 
+   #bufferRatio = 0.8,
+   #verbose = TRUE,
+  #logFile = createLogFile("getMarkerFeatures")
+)
+```
+
+"" = "#016D4F",
+  "" = "#66C2A5",
+  "" = "#A6D854",
+  "" = "#56B4E9",
+  "BCell_2" = "#1F78B4",
+  "Monocyte" = "#CC79A7",
+  "NKCell_1" = "#F0C300",
+  "NKCell_2" = "#E69F00",
+  "Cytotoxic" = "#984EA3"
+
+
+```{r}
+
+dir.create("./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/", recursive = TRUE, showWarnings = FALSE)
+
+markerList <- getMarkers(markersGS, cutOff = "FDR <= 0.05 & Log2FC >= 1.0")
+write.csv(markerList$TCell_Naive, file = "./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_TCell_Naive_FDR_0.05_Log2FC_1.csv", row.names = FALSE)
+
+markerList <- getMarkers(markersGS, cutOff = "FDR <= 0.05 & Log2FC >= 1.0")
+write.csv(markerList$TCell_Reg_Exhausted, file = "./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_TCell_Reg_Exhausted_FDR_0.05_Log2FC_1.csv", row.names = FALSE)
+
+markerList <- getMarkers(markersGS, cutOff = "FDR <= 0.05 & Log2FC >= 1.0")
+write.csv(markerList$TCell_CM, file = "./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_TCell_CM_FDR_0.05_Log2FC_1.csv", row.names = FALSE)
+
+markerList <- getMarkers(markersGS, cutOff = "FDR <= 0.05 & Log2FC >= 1.0")
+write.csv(markerList$TCell_4, file = "./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_TCell_4_FDR_0.05_Log2FC_1.csv", row.names = FALSE)
+
+markerList <- getMarkers(markersGS, cutOff = "FDR <= 0.05 & Log2FC >= 1.0")
+write.csv(markerList$BCell_1, file = "./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_BCell_1_FDR_0.05_Log2FC_1.csv", row.names = FALSE)
+
+markerList <- getMarkers(markersGS, cutOff = "FDR <= 0.05 & Log2FC >= 1.0")
+write.csv(markerList$BCell_2, file = "./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_BCell_2_FDR_0.05_Log2FC_1.csv", row.names = FALSE)
+
+markerList <- getMarkers(markersGS, cutOff = "FDR <= 0.05 & Log2FC >= 1.0")
+write.csv(markerList$Monocyte, file = "./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_Monocyte_FDR_0.05_Log2FC_1.csv", row.names = FALSE)
+
+markerList <- getMarkers(markersGS, cutOff = "FDR <= 0.05 & Log2FC >= 1.0")
+write.csv(markerList$NKCell_1, file = "./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_NKCell_1_FDR_0.05_Log2FC_1.csv", row.names = FALSE)
+
+markerList <- getMarkers(markersGS, cutOff = "FDR <= 0.05 & Log2FC >= 1.0")
+write.csv(markerList$NKCell_2, file = "./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_NKCell_2_FDR_0.05_Log2FC_1.csv", row.names = FALSE)
+
+markerList <- getMarkers(markersGS, cutOff = "FDR <= 0.05 & Log2FC >= 1.0")
+write.csv(markerList$Cytotoxic, file = "./tmp/PBMC_Final_Marker_Gene_Analysis_012826/WNN_Clusters_040426/H3K4me3_Cytotoxic_FDR_0.05_Log2FC_1.csv", row.names = FALSE)
+
+```

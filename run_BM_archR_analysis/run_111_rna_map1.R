@@ -34,7 +34,7 @@ d_maker_all_genes = fread("./tmp/table_marker_genes_all_clusters_both_directions
 
 d_maker_gene = d_maker_all_genes[Direction == "Up" & marker == "K4me3" & Log2FC > 1.25, .(Cluster, gene_name = name, Log2FC, FDR)]
 
-## choose the top 50 genes per cluster based on SD
+## choose the top 50 genes per cluster with smallest FDR
 d_maker_gene = d_maker_gene[, head(.SD, 50), by = .(Cluster)]
 
 d_maker_gene[Cluster == "C3"]$gene_name

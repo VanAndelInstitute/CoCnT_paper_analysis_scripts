@@ -1,0 +1,1575 @@
+---
+title: "Mona Lisa motif enrichment on B/E/M clusters"
+output: html_notebook
+---
+
+```{r}
+.rs.restartR()
+```
+
+```{r}
+installed.packages()
+
+```
+```{r}
+.libPaths()
+
+```
+```{r}
+list.files("/home/derek.janssens/R/x86_64-pc-linux-gnu-library/4.4")
+
+```
+```{r}
+install_path <- "/home/derek.janssens/R/x86_64-pc-linux-gnu-library/4.4"
+#.libPaths(install_path)
+#print(.libPaths(install_path))
+#install.packages("devtools", lib = install_path)
+#install.packages("Seurat", lib = install_path)
+# Install ArchR
+#if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager", lib = install_path)
+#devtools::install_github("GreenleafLab/ArchR", ref = "master", 
+#1                         repos = BiocManager::repositories(), lib = install_path)
+#install.packages("repr", lib = install_path)
+#ArchR::installExtraPackages()
+#devtools::install_github("immunogenomics/harmony", lib = install_path)
+# Install GenomicRanges and rtracklayer if not already installed
+#if (!requireNamespace("GenomicRanges", quietly = TRUE)) {
+#  install.packages("BiocManager")
+#  BiocManager::install("GenomicRanges")
+#}
+#if (!requireNamespace("rtracklayer", quietly = TRUE)) {
+#  BiocManager::install("rtracklayer")
+#}
+#install.packages("viridis")
+
+```
+
+```{r}
+#BiocManager::install(c("monaLisa","JASPAR2020","TFBSTools"), ask=FALSE, update=FALSE)
+BiocManager::install(c("JASPAR2022"), ask=FALSE, update=FALSE)
+```
+
+```{r}
+suppressPackageStartupMessages({
+  library(monaLisa)
+  library(GenomicRanges)
+  library(rtracklayer)
+  library(Biostrings)
+})
+
+```
+
+```{r}
+library(TFBSTools)
+library(JASPAR2020)
+
+opts <- list(species = 9606, all_versions = FALSE)
+pfm_list <- getMatrixSet(JASPAR2020, opts)   # PFMatrixList
+
+# Convert PFMatrixList -> PWMatrixList (robust)
+pwm_list <- toPWM(pfm_list)
+
+length(pwm_list)
+
+```
+```{r}
+library(TFBSTools)
+library(JASPAR2022)
+
+opts <- list(species = 9606, all_versions = FALSE)
+pfm_list <- getMatrixSet(JASPAR2022, opts)   # PFMatrixList
+
+# Convert PFMatrixList -> PWMatrixList (robust)
+pwm_list <- toPWM(pfm_list)
+
+length(pwm_list)
+
+```
+
+
+```{r}
+# Now check for key TFs
+
+# Your explicit list
+explicit_TFs <- c("MECOM", "GATA1", "ZFPM1","TAL1", "EBF1", "PAX5", "CEBPA", "RUNX1", "SPI1", "IKZF1", "BCL11A", "TCF3", "HOXA9", "HOXB5", "MEIS1")
+
+# Choose which PWM list you're using
+pwm_use <- pwm_curated
+#pwm_use <- pwm_list
+
+# Extract motif names + IDs
+motif_name <- vapply(pwm_use, function(m) tryCatch(name(m), error=function(e) NA_character_), character(1))
+motif_id   <- vapply(pwm_use, function(m) tryCatch(ID(m),   error=function(e) NA_character_), character(1))
+
+# Match if ANY TF appears as a token in the motif name.
+# This will catch e.g. "GATA1", "GATA1::TAL1", "CEBPA/CEBPB", etc.
+pattern <- paste0("(^|[^A-Z0-9])(", paste(explicit_TFs, collapse="|"), ")([^A-Z0-9]|$)")
+keep <- grepl(pattern, toupper(motif_name), perl=TRUE)
+
+hits <- data.frame(
+  motif_id   = motif_id[keep],
+  motif_name = motif_name[keep],
+  stringsAsFactors = FALSE
+)
+
+# Sort nicely: first by TF order, then by name
+hits$tf_hit <- vapply(hits$motif_name, function(nm) {
+  nm_up <- toupper(nm)
+  explicit_TFs[which.max(vapply(explicit_TFs, function(tf) grepl(tf, nm_up, fixed=TRUE), logical(1)))]
+}, character(1))
+
+hits <- hits[order(match(hits$tf_hit, explicit_TFs), hits$motif_name), ]
+
+# Print results
+print(hits, row.names = FALSE)
+
+# Optional: just the unique motif names
+cat("\nUnique motif names:\n")
+cat(paste(unique(hits$motif_name), collapse="\n"), "\n")
+
+```
+```{r}
+# ============================================================
+# Build curated PWM set from JASPAR2022 (Human + Mouse)
+# - Load human + mouse PFMs
+# - Convert to PWMs
+# - Collapse exact duplicates by "base ID" (e.g., MAxxxx)
+#   * If both species present, prefer HUMAN
+# - Prune near-redundant PWMs by similarity threshold (0.95)
+#   * Prefer HUMAN; then prefer hematopoiesis TFs you care about
+# - Save as RDS: JASPAR2022_human_mouse_curated_0.95_pwms.rds
+# - Expose as pwm_list in environment
+#
+# Notes:
+# - Similarity pruning uses monaLisa::findMotifHits() correlation-based distance
+#   through motif similarity on PWMs via TFBSTools utilities.
+# - If you already have your own similarity routine, you can swap that section.
+# ============================================================
+
+suppressPackageStartupMessages({
+  library(TFBSTools)
+  library(JASPAR2022)
+  library(monaLisa)
+})
+
+# -----------------------------
+# 0) Load PFMs for human + mouse
+# -----------------------------
+opts_hs <- list(species = 9606, all_versions = FALSE)
+opts_mm <- list(species = 10090, all_versions = FALSE)
+
+pfm_hs <- getMatrixSet(JASPAR2022, opts_hs)   # PFMatrixList
+pfm_mm <- getMatrixSet(JASPAR2022, opts_mm)
+
+message("PFMs loaded: human=", length(pfm_hs), " mouse=", length(pfm_mm),
+        " total=", length(pfm_hs) + length(pfm_mm))
+
+# Convert to PWMs
+pwm_hs <- toPWM(pfm_hs)
+pwm_mm <- toPWM(pfm_mm)
+
+pwm_all <- c(pwm_hs, pwm_mm)
+
+# -----------------------------
+# Helpers
+# -----------------------------
+.base_id <- function(m) sub("\\..*$", "", ID(m))  # MAxxxx from MAxxxx.x
+
+.is_human <- function(m) {
+  # try to detect species from tags; fallback to FALSE if missing
+  sp <- tryCatch(tags(m)[["species"]], error=function(e) NULL)
+  if (is.null(sp)) return(FALSE)
+  any(grepl("\\b9606\\b", as.character(sp)))
+}
+
+.motif_name <- function(m) {
+  nm <- tryCatch(name(m), error=function(e) "")
+  if (is.null(nm) || nm == "") nm <- tryCatch(tags(m)[["name"]], error=function(e) "")
+  if (is.null(nm)) nm <- ""
+  as.character(nm)
+}
+
+# prioritize TFs by name substring (case-insensitive)
+HEMA_TF_PRIORITY <- c(
+  "MECOM","GATA1","GATA2","TAL1","EBF1","PAX5","CEBPA","CEBPB",
+  "RUNX1","RUNX2","RUNX3","SPI1","PU.1","IKZF1","IKZF2","IKZF3",
+  "TCF3","E2A","BCL11A","BCL11B","IRF4","IRF8","STAT5","STAT3",
+  "NFKB","REL","BATF","JUN","FOS","AP1","ETS1","ELF1","ETV6"
+)
+
+.has_hema <- function(m) {
+  nm <- toupper(.motif_name(m))
+  any(vapply(HEMA_TF_PRIORITY, function(p) grepl(p, nm, ignore.case=TRUE), logical(1)))
+}
+
+# -----------------------------
+# 1) Collapse by base ID, prefer human if duplicated
+# -----------------------------
+pwm_by_id <- split(pwm_all, vapply(pwm_all, .base_id, character(1)))
+
+pick_one <- function(mots) {
+  if (length(mots) == 1) return(mots[[1]])
+
+  # rank: (1) has hematopoiesis TF name, (2) human, (3) keep first
+  hema <- vapply(mots, .has_hema, logical(1))
+  hum  <- vapply(mots, .is_human, logical(1))
+
+  # score
+  score <- (hema * 100L) + (hum * 10L)
+  mots[[which.max(score)]]
+}
+
+pwm_base <- PWMatrixList(lapply(pwm_by_id, pick_one))
+message("After base-ID collapse: ", length(pwm_base))
+
+# -----------------------------
+# 2) Similarity pruning at threshold=0.95
+#    Strategy:
+#    - Compute pairwise similarity using monaLisa motif distance
+#    - Greedy prune: keep best-ranked motif in each similarity-connected cluster
+# -----------------------------
+SIM_THRESH <- 0.95
+
+# Build ranking vector for greedy selection: hema > human > others
+rank_score <- function(m) {
+  (as.integer(.has_hema(m)) * 1000L) +
+    (as.integer(.is_human(m)) * 100L)
+}
+
+# monaLisa provides motif similarity utilities via internal helpers;
+# easiest robust path: use motifDistance() on PWMs if available
+# If your installed monaLisa doesn't export motifDistance(), we'll fallback to TFBSTools::PWMSimilarity
+get_sim <- function(a, b) {
+  # Try TFBSTools similarity (Pearson correlation of aligned matrices)
+  # Note: PWM similarity definitions vary; this gives a practical redundancy filter.
+  suppressWarnings({
+    tryCatch({
+      as.numeric(PWMSimilarity(a, b, method="Pearson"))
+    }, error=function(e) NA_real_)
+  })
+}
+
+pwm_vec <- as.list(pwm_base)
+n <- length(pwm_vec)
+
+# compute similarity matrix (upper triangle) – O(n^2)
+sim_mat <- matrix(NA_real_, nrow=n, ncol=n)
+diag(sim_mat) <- 1
+for (i in seq_len(n-1)) {
+  for (j in (i+1):n) {
+    sim <- get_sim(pwm_vec[[i]], pwm_vec[[j]])
+    sim_mat[i, j] <- sim
+    sim_mat[j, i] <- sim
+  }
+}
+
+# greedy pruning
+ord <- order(vapply(pwm_vec, rank_score, integer(1)), decreasing=TRUE)
+keep <- rep(FALSE, n)
+dropped <- rep(FALSE, n)
+
+for (idx in ord) {
+  if (dropped[idx]) next
+  keep[idx] <- TRUE
+  # drop all motifs too similar to this one (except itself)
+  too_sim <- which(sim_mat[idx, ] >= SIM_THRESH)
+  too_sim <- setdiff(too_sim, idx)
+  dropped[too_sim] <- TRUE
+}
+
+pwm_curated <- PWMatrixList(pwm_vec[keep])
+message("After similarity pruning (threshold=", SIM_THRESH, "): ", length(pwm_curated))
+
+# optional: report how many curated motifs match hematopoiesis list
+hema_count <- sum(vapply(as.list(pwm_curated), .has_hema, logical(1)))
+message("Curated motifs with hematopoiesis TF names (approx match): ", hema_count)
+
+# -----------------------------
+# 3) Save + export
+# -----------------------------
+#saveRDS(pwm_curated, file = "JASPAR2022_human_mouse_curated_0.95_pwms.rds")
+#message("Saved curated PWMs -> JASPAR2022_human_mouse_curated_0.95_pwms.rds")
+
+# If you want it in your environment under the same variable name:
+pwm_list <- pwm_curated
+```
+
+
+```{r}
+# Save curated PWM list for reuse
+saveRDS(pwm_curated, file = "JASPAR2022_human_mouse_curated_0.95_pwms.rds")
+message("Saved curated PWMs -> JASPAR2022_human_mouse_curated_0.95_pwms.rds")
+
+# If you want it in your environment under the same variable name:
+pwm_list <- pwm_curated
+```
+
+```{r}
+# ============================================================
+# MONA Lisa motif enrichment with per-group background
+# JASPAR2022 PWMs
+# Saves after each group completes + supports resume
+# ============================================================
+
+suppressPackageStartupMessages({
+  library(rtracklayer)
+  library(GenomicRanges)
+  library(GenomeInfoDb)
+  library(BSgenome.Hsapiens.UCSC.hg38)
+  library(Biostrings)
+  library(SummarizedExperiment)
+  library(monaLisa)
+
+  library(TFBSTools)
+  library(JASPAR2022)
+})
+
+# -----------------------------
+# 0) Motifs: JASPAR2022 -> PWM list
+# -----------------------------
+pwm_list <- readRDS("JASPAR2022_human_mouse_curated_0.95_pwms.rds")
+message("Loaded curated PWMs: ", length(pwm_list))
+
+# -----------------------------
+# 1) Paths + IO
+# -----------------------------
+bed_dir <- "Cluster_beds_200bp_Final/Distal_R6/"
+
+distal_universe_file   <- file.path(bed_dir, "Distal_control_200bp_030326.bed")
+#promoter_universe_file <- file.path(bed_dir, "B_lineage_all_peaks_promoter_TSS2kb.bed")
+
+if (!file.exists(distal_universe_file)) stop("Missing distal universe BED: ", distal_universe_file)
+if (!file.exists(promoter_universe_file)) warning("Promoter universe BED not found (ok): ", promoter_universe_file)
+
+outdir <- "MONALisa_Distal_200bp_Cluster_Test_Curated_JASPAR2022_Hs_Mm_Motifs_0.95_030326_Final_R6"
+dir.create(outdir, showWarnings = FALSE)
+
+# master result container (optional; we will still save per-group)
+master_rds <- file.path(outdir, "ALL_groups_monaLisa_results.rds")
+
+# -----------------------------
+# Helpers
+# -----------------------------
+bed_to_gr <- function(f) {
+  x <- read.table(f, sep = "\t", header = FALSE, comment.char = "",
+                  stringsAsFactors = FALSE, quote = "")
+
+  if (ncol(x) < 3) stop("BED has <3 columns: ", f)
+
+  # keep only BED3
+  x <- x[, 1:3]
+  colnames(x) <- c("seqnames", "start0", "end")
+
+  # BED is 0-based start; GRanges is 1-based start
+  gr <- GenomicRanges::GRanges(
+    seqnames = x$seqnames,
+    ranges   = IRanges::IRanges(start = x$start0 + 1L, end = x$end)
+  )
+
+  GenomeInfoDb::seqlevelsStyle(gr) <- "UCSC"
+  gr
+}
+
+keep_ucsc_std <- function(gr, keep_chr) {
+  gr <- keepStandardChromosomes(gr, pruning.mode = "coarse")
+  gr <- gr[as.character(seqnames(gr)) %in% keep_chr]
+  sort(gr)
+}
+
+# Filter a GRanges by whether its extracted sequence is only A/C/G/T
+filter_gr_acgt <- function(gr, genome) {
+  if (length(gr) == 0) return(gr)
+  s <- getSeq(genome, gr)
+  keep <- grepl("^[ACGT]+$", as.character(s))
+  gr[keep]
+}
+
+make_bg_for_fg <- function(fg, universe) {
+  fg <- reduce(fg)
+  bg <- setdiff(universe, fg, ignore.strand = TRUE)
+  sort(bg)
+}
+
+se_to_table <- function(se) {
+  data.frame(
+    motif_id      = rowData(se)$motif.id,
+    motif_name    = rowData(se)$motif.name,
+    log2enr       = assay(se, "log2enr")[, "fg"],
+    negLog10P     = assay(se, "negLog10P")[, "fg"],
+    negLog10Padj  = assay(se, "negLog10Padj")[, "fg"],
+    stringsAsFactors = FALSE
+  )
+}
+
+# -----------------------------
+# 2) Load genome + universe
+# -----------------------------
+genome <- BSgenome.Hsapiens.UCSC.hg38
+keep_chr <- seqlevels(genome)
+
+distal_universe <- bed_to_gr(distal_universe_file)
+distal_universe <- keep_ucsc_std(distal_universe, keep_chr)
+distal_universe <- reduce(distal_universe)
+distal_universe <- sort(distal_universe)
+
+message("Distal universe before ACGT filter: ", length(distal_universe))
+distal_universe <- filter_gr_acgt(distal_universe, genome)
+message("Distal universe after  ACGT filter: ", length(distal_universe))
+
+# -----------------------------
+# 3) Load feature-group beds (exclude universe beds)
+# -----------------------------
+beds <- list.files(bed_dir, pattern="\\.bed$", full.names=TRUE)
+exclude_files <- c(distal_universe_file, promoter_universe_file)
+fg_beds <- beds[!beds %in% exclude_files]
+
+message("Found ", length(beds), " total BEDs")
+message("Testing ", length(fg_beds), " feature-group BEDs")
+
+fg_list <- setNames(lapply(fg_beds, bed_to_gr), sub("\\.bed$", "", basename(fg_beds)))
+fg_list <- lapply(fg_list, keep_ucsc_std, keep_chr = keep_chr)
+
+# -----------------------------
+# 4) Run MONA Lisa per group, save after each
+# -----------------------------
+results <- list()
+
+for (nm in names(fg_list)) {
+
+  # Per-group output files
+  rds_path <- file.path(outdir, paste0(nm, "_monaLisa.rds"))
+  tsv_path <- file.path(outdir, paste0(nm, "_motif_enrichment.tsv"))
+
+  # Resume: skip if already computed
+  if (file.exists(rds_path)) {
+    message("Skipping (already exists): ", nm)
+    next
+  }
+
+  fg <- reduce(fg_list[[nm]])
+  fg <- filter_gr_acgt(fg, genome)
+
+  bg <- make_bg_for_fg(fg, distal_universe)
+  bg <- filter_gr_acgt(bg, genome)
+
+  cat("\n--- ", nm, " ---\n", sep = "")
+  cat("  fg peaks: ", length(fg), "\n", sep = "")
+  cat("  bg peaks: ", length(bg), "\n", sep = "")
+
+  if (length(fg) < 50) {
+    warning("Skipping ", nm, " because fg has <50 peaks.")
+    next
+  }
+  if (length(bg) < 200) {
+    warning("Skipping ", nm, " because bg is very small.")
+    next
+  }
+
+  # sequences
+  fg_seq <- getSeq(genome, fg)
+  bg_seq <- getSeq(genome, bg)
+
+  seqs <- c(fg_seq, bg_seq)
+  bins <- factor(
+    c(rep("fg", length(fg_seq)), rep("bg", length(bg_seq))),
+    levels = c("fg", "bg")
+  )
+
+  # Run enrichment (wrap in tryCatch so a single failure doesn't kill the whole run)
+  se <- tryCatch({
+    calcBinnedMotifEnrR(
+      seqs = seqs,
+      bins = bins,
+      pwmL = pwm_list,
+      background = "otherBins",
+      test = "fisher",
+      verbose = TRUE
+    )
+  }, error = function(e) {
+    message("FAILED: ", nm, " -> ", conditionMessage(e))
+    return(NULL)
+  })
+
+  if (is.null(se)) next
+
+  # Save immediately (RDS)
+  saveRDS(se, file = rds_path)
+  message("Saved: ", rds_path)
+
+  # Export TSV immediately
+  tab <- se_to_table(se)
+  tab <- tab[order(-tab$negLog10Padj), ]
+  write.table(tab, file = tsv_path, sep = "\t", quote = FALSE, row.names = FALSE)
+  message("Wrote: ", tsv_path)
+
+  # Optionally also keep in-memory + save master occasionally
+  results[[nm]] <- se
+
+  # Save master snapshot after each group (safe against session loss)
+  saveRDS(results, file = master_rds)
+  message("Updated master: ", master_rds)
+}
+
+message("Done. Outputs in: ", outdir)
+
+```
+
+
+
+
+
+
+
+```{r}
+# ============================================================
+# MONA Lisa motif enrichment with per-group background
+# JASPAR2022 PWMs
+# Saves after each group completes + supports resume
+# ============================================================
+
+suppressPackageStartupMessages({
+  library(rtracklayer)
+  library(GenomicRanges)
+  library(GenomeInfoDb)
+  library(BSgenome.Hsapiens.UCSC.hg38)
+  library(Biostrings)
+  library(SummarizedExperiment)
+  library(monaLisa)
+
+  library(TFBSTools)
+  library(JASPAR2022)
+})
+
+# -----------------------------
+# 0) Motifs: JASPAR2022 -> PWM list
+# -----------------------------
+pwm_list <- readRDS("JASPAR2022_human_mouse_curated_0.95_pwms.rds")
+message("Loaded curated PWMs: ", length(pwm_list))
+
+# -----------------------------
+# 1) Paths + IO
+# -----------------------------
+bed_dir <- "Cluster_beds_200bp_Final/Promoter_R6/"
+
+distal_universe_file   <- file.path(bed_dir, "Promoter_control_200bp_030326.bed")
+#promoter_universe_file <- file.path(bed_dir, "B_lineage_all_peaks_promoter_TSS2kb.bed")
+
+if (!file.exists(distal_universe_file)) stop("Missing distal universe BED: ", distal_universe_file)
+if (!file.exists(promoter_universe_file)) warning("Promoter universe BED not found (ok): ", promoter_universe_file)
+
+outdir <- "MONALisa_Promoter_200bp_Cluster_Test_Curated_JASPAR2022_Hs_Mm_Motifs_0.95_030326_Final_R6"
+dir.create(outdir, showWarnings = FALSE)
+
+# master result container (optional; we will still save per-group)
+master_rds <- file.path(outdir, "ALL_groups_monaLisa_results.rds")
+
+# -----------------------------
+# Helpers
+# -----------------------------
+bed_to_gr <- function(f) {
+  x <- read.table(f, sep = "\t", header = FALSE, comment.char = "",
+                  stringsAsFactors = FALSE, quote = "")
+
+  if (ncol(x) < 3) stop("BED has <3 columns: ", f)
+
+  # keep only BED3
+  x <- x[, 1:3]
+  colnames(x) <- c("seqnames", "start0", "end")
+
+  # BED is 0-based start; GRanges is 1-based start
+  gr <- GenomicRanges::GRanges(
+    seqnames = x$seqnames,
+    ranges   = IRanges::IRanges(start = x$start0 + 1L, end = x$end)
+  )
+
+  GenomeInfoDb::seqlevelsStyle(gr) <- "UCSC"
+  gr
+}
+
+keep_ucsc_std <- function(gr, keep_chr) {
+  gr <- keepStandardChromosomes(gr, pruning.mode = "coarse")
+  gr <- gr[as.character(seqnames(gr)) %in% keep_chr]
+  sort(gr)
+}
+
+# Filter a GRanges by whether its extracted sequence is only A/C/G/T
+filter_gr_acgt <- function(gr, genome) {
+  if (length(gr) == 0) return(gr)
+  s <- getSeq(genome, gr)
+  keep <- grepl("^[ACGT]+$", as.character(s))
+  gr[keep]
+}
+
+make_bg_for_fg <- function(fg, universe) {
+  fg <- reduce(fg)
+  bg <- setdiff(universe, fg, ignore.strand = TRUE)
+  sort(bg)
+}
+
+se_to_table <- function(se) {
+  data.frame(
+    motif_id      = rowData(se)$motif.id,
+    motif_name    = rowData(se)$motif.name,
+    log2enr       = assay(se, "log2enr")[, "fg"],
+    negLog10P     = assay(se, "negLog10P")[, "fg"],
+    negLog10Padj  = assay(se, "negLog10Padj")[, "fg"],
+    stringsAsFactors = FALSE
+  )
+}
+
+# -----------------------------
+# 2) Load genome + universe
+# -----------------------------
+genome <- BSgenome.Hsapiens.UCSC.hg38
+keep_chr <- seqlevels(genome)
+
+distal_universe <- bed_to_gr(distal_universe_file)
+distal_universe <- keep_ucsc_std(distal_universe, keep_chr)
+distal_universe <- reduce(distal_universe)
+distal_universe <- sort(distal_universe)
+
+message("Distal universe before ACGT filter: ", length(distal_universe))
+distal_universe <- filter_gr_acgt(distal_universe, genome)
+message("Distal universe after  ACGT filter: ", length(distal_universe))
+
+# -----------------------------
+# 3) Load feature-group beds (exclude universe beds)
+# -----------------------------
+beds <- list.files(bed_dir, pattern="\\.bed$", full.names=TRUE)
+exclude_files <- c(distal_universe_file, promoter_universe_file)
+fg_beds <- beds[!beds %in% exclude_files]
+
+message("Found ", length(beds), " total BEDs")
+message("Testing ", length(fg_beds), " feature-group BEDs")
+
+fg_list <- setNames(lapply(fg_beds, bed_to_gr), sub("\\.bed$", "", basename(fg_beds)))
+fg_list <- lapply(fg_list, keep_ucsc_std, keep_chr = keep_chr)
+
+# -----------------------------
+# 4) Run MONA Lisa per group, save after each
+# -----------------------------
+results <- list()
+
+for (nm in names(fg_list)) {
+
+  # Per-group output files
+  rds_path <- file.path(outdir, paste0(nm, "_monaLisa.rds"))
+  tsv_path <- file.path(outdir, paste0(nm, "_motif_enrichment.tsv"))
+
+  # Resume: skip if already computed
+  if (file.exists(rds_path)) {
+    message("Skipping (already exists): ", nm)
+    next
+  }
+
+  fg <- reduce(fg_list[[nm]])
+  fg <- filter_gr_acgt(fg, genome)
+
+  bg <- make_bg_for_fg(fg, distal_universe)
+  bg <- filter_gr_acgt(bg, genome)
+
+  cat("\n--- ", nm, " ---\n", sep = "")
+  cat("  fg peaks: ", length(fg), "\n", sep = "")
+  cat("  bg peaks: ", length(bg), "\n", sep = "")
+
+  if (length(fg) < 50) {
+    warning("Skipping ", nm, " because fg has <50 peaks.")
+    next
+  }
+  if (length(bg) < 200) {
+    warning("Skipping ", nm, " because bg is very small.")
+    next
+  }
+
+  # sequences
+  fg_seq <- getSeq(genome, fg)
+  bg_seq <- getSeq(genome, bg)
+
+  seqs <- c(fg_seq, bg_seq)
+  bins <- factor(
+    c(rep("fg", length(fg_seq)), rep("bg", length(bg_seq))),
+    levels = c("fg", "bg")
+  )
+
+  # Run enrichment (wrap in tryCatch so a single failure doesn't kill the whole run)
+  se <- tryCatch({
+    calcBinnedMotifEnrR(
+      seqs = seqs,
+      bins = bins,
+      pwmL = pwm_list,
+      background = "otherBins",
+      test = "fisher",
+      verbose = TRUE
+    )
+  }, error = function(e) {
+    message("FAILED: ", nm, " -> ", conditionMessage(e))
+    return(NULL)
+  })
+
+  if (is.null(se)) next
+
+  # Save immediately (RDS)
+  saveRDS(se, file = rds_path)
+  message("Saved: ", rds_path)
+
+  # Export TSV immediately
+  tab <- se_to_table(se)
+  tab <- tab[order(-tab$negLog10Padj), ]
+  write.table(tab, file = tsv_path, sep = "\t", quote = FALSE, row.names = FALSE)
+  message("Wrote: ", tsv_path)
+
+  # Optionally also keep in-memory + save master occasionally
+  results[[nm]] <- se
+
+  # Save master snapshot after each group (safe against session loss)
+  saveRDS(results, file = master_rds)
+  message("Updated master: ", master_rds)
+}
+
+message("Done. Outputs in: ", outdir)
+
+```
+
+
+```{r}
+# ============================================================
+# GC percentage per BED interval + rank-ordered boxplot by median
+# Print plot only in RStudio
+# ============================================================
+
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(GenomeInfoDb)
+  library(BSgenome.Hsapiens.UCSC.hg38)
+  library(Biostrings)
+  library(ggplot2)
+})
+
+# -----------------------------
+# 1) Input
+# -----------------------------
+bed_dir <- "Cluster_beds_200bp_Final/Promoter_R6/"
+
+# -----------------------------
+# 2) Genome
+# -----------------------------
+genome <- BSgenome.Hsapiens.UCSC.hg38
+keep_chr <- seqlevels(genome)
+
+# -----------------------------
+# Helpers
+# -----------------------------
+bed_to_gr <- function(f) {
+  x <- read.table(
+    f,
+    sep = "\t",
+    header = FALSE,
+    comment.char = "",
+    stringsAsFactors = FALSE,
+    quote = ""
+  )
+
+  if (ncol(x) < 3) stop("BED has <3 columns: ", f)
+
+  x <- x[, 1:3]
+  colnames(x) <- c("seqnames", "start0", "end")
+
+  gr <- GRanges(
+    seqnames = x$seqnames,
+    ranges = IRanges(start = x$start0 + 1L, end = x$end)
+  )
+
+  seqlevelsStyle(gr) <- "UCSC"
+  gr
+}
+
+keep_ucsc_std <- function(gr, keep_chr) {
+  gr <- keepStandardChromosomes(gr, pruning.mode = "coarse")
+  gr <- gr[as.character(seqnames(gr)) %in% keep_chr]
+  sort(gr)
+}
+
+calc_gc_percent <- function(seqs) {
+  gc_count <- vcountPattern("G", seqs) + vcountPattern("C", seqs)
+  (gc_count / width(seqs)) * 100
+}
+
+# -----------------------------
+# 3) Find BED files
+# -----------------------------
+bed_files <- list.files(bed_dir, pattern = "\\.bed$", full.names = TRUE)
+
+if (length(bed_files) == 0) {
+  stop("No BED files found in: ", bed_dir)
+}
+
+message("Found ", length(bed_files), " BED files")
+
+# -----------------------------
+# 4) Process each BED
+# -----------------------------
+all_gc <- list()
+
+for (f in bed_files) {
+  nm <- sub("\\.bed$", "", basename(f))
+  message("Processing: ", nm)
+
+  gr <- bed_to_gr(f)
+  gr <- keep_ucsc_std(gr, keep_chr)
+
+  if (length(gr) == 0) {
+    warning("Skipping empty/filtered BED: ", nm)
+    next
+  }
+
+  seqs <- getSeq(genome, gr)
+  keep <- grepl("^[ACGT]+$", as.character(seqs))
+
+  gr <- gr[keep]
+  seqs <- seqs[keep]
+
+  if (length(gr) == 0) {
+    warning("Skipping after ACGT filtering: ", nm)
+    next
+  }
+
+  all_gc[[nm]] <- data.frame(
+    group = nm,
+    gc_percent = calc_gc_percent(seqs),
+    stringsAsFactors = FALSE
+  )
+}
+
+gc_df <- do.call(rbind, all_gc)
+
+if (is.null(gc_df) || nrow(gc_df) == 0) {
+  stop("No intervals available after filtering.")
+}
+
+# -----------------------------
+# 5) Order groups by median GC
+# -----------------------------
+med_df <- aggregate(gc_percent ~ group, data = gc_df, median)
+colnames(med_df)[2] <- "median_gc_percent"
+med_df <- med_df[order(med_df$median_gc_percent, decreasing = TRUE), ]
+
+gc_df$group <- factor(gc_df$group, levels = med_df$group)
+
+# -----------------------------
+# 6) Plot to RStudio device
+# -----------------------------
+p <- ggplot(gc_df, aes(x = group, y = gc_percent)) +
+  geom_boxplot(outlier.size = 0.3) +
+  theme_bw(base_size = 11) +
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+    panel.grid.major.x = element_blank()
+  ) +
+  labs(
+    title = "GC percentage per interval across BED files",
+    subtitle = "Groups ordered by median GC%",
+    x = "BED file / group",
+    y = "GC percentage"
+  )
+
+print(p)
+```
+
+```{r}
+p
+```
+
+
+```{r}
+# ============================================================
+# GC percentage per BED interval + styled rank-ordered boxplot
+# Print in RStudio and save as PNG
+# ============================================================
+
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(GenomeInfoDb)
+  library(BSgenome.Hsapiens.UCSC.hg38)
+  library(Biostrings)
+  library(ggplot2)
+})
+
+# -----------------------------
+# 1) Input
+# -----------------------------
+bed_dir <- "Cluster_beds_200bp_Final/Promoter_R6/"
+out_png <- file.path(bed_dir, "GC_percent_ranked_boxplot.png")
+
+# -----------------------------
+# 2) Genome
+# -----------------------------
+genome <- BSgenome.Hsapiens.UCSC.hg38
+keep_chr <- seqlevels(genome)
+
+# -----------------------------
+# Helpers
+# -----------------------------
+bed_to_gr <- function(f) {
+  x <- read.table(
+    f,
+    sep = "\t",
+    header = FALSE,
+    comment.char = "",
+    stringsAsFactors = FALSE,
+    quote = ""
+  )
+
+  if (ncol(x) < 3) stop("BED has <3 columns: ", f)
+
+  x <- x[, 1:3]
+  colnames(x) <- c("seqnames", "start0", "end")
+
+  gr <- GRanges(
+    seqnames = x$seqnames,
+    ranges = IRanges(start = x$start0 + 1L, end = x$end)
+  )
+
+  seqlevelsStyle(gr) <- "UCSC"
+  gr
+}
+
+keep_ucsc_std <- function(gr, keep_chr) {
+  gr <- keepStandardChromosomes(gr, pruning.mode = "coarse")
+  gr <- gr[as.character(seqnames(gr)) %in% keep_chr]
+  sort(gr)
+}
+
+calc_gc_percent <- function(seqs) {
+  gc_count <- vcountPattern("G", seqs) + vcountPattern("C", seqs)
+  (gc_count / width(seqs)) * 100
+}
+
+# -----------------------------
+# 3) Find BED files
+# -----------------------------
+bed_files <- list.files(bed_dir, pattern = "\\.bed$", full.names = TRUE)
+
+if (length(bed_files) == 0) {
+  stop("No BED files found in: ", bed_dir)
+}
+
+message("Found ", length(bed_files), " BED files")
+
+# -----------------------------
+# 4) Process each BED
+# -----------------------------
+all_gc <- list()
+
+for (f in bed_files) {
+  nm <- sub("\\.bed$", "", basename(f))
+  message("Processing: ", nm)
+
+  gr <- bed_to_gr(f)
+  gr <- keep_ucsc_std(gr, keep_chr)
+
+  if (length(gr) == 0) {
+    warning("Skipping empty/filtered BED: ", nm)
+    next
+  }
+
+  seqs <- getSeq(genome, gr)
+  keep <- grepl("^[ACGT]+$", as.character(seqs))
+
+  gr <- gr[keep]
+  seqs <- seqs[keep]
+
+  if (length(gr) == 0) {
+    warning("Skipping after ACGT filtering: ", nm)
+    next
+  }
+
+  all_gc[[nm]] <- data.frame(
+    group = nm,
+    gc_percent = calc_gc_percent(seqs),
+    stringsAsFactors = FALSE
+  )
+}
+
+gc_df <- do.call(rbind, all_gc)
+
+if (is.null(gc_df) || nrow(gc_df) == 0) {
+  stop("No intervals available after filtering.")
+}
+
+# -----------------------------
+# 5) Order groups by median GC
+# -----------------------------
+med_df <- aggregate(gc_percent ~ group, data = gc_df, median)
+colnames(med_df)[2] <- "median_gc_percent"
+med_df <- med_df[order(med_df$median_gc_percent, decreasing = TRUE), ]
+
+gc_df$group <- factor(gc_df$group, levels = med_df$group)
+
+# -----------------------------
+# 6) Styled plot
+# -----------------------------
+p <- ggplot(gc_df, aes(x = group, y = gc_percent)) +
+  geom_boxplot(
+    fill = "grey70",
+    color = "black",
+    outlier.shape = NA,
+    width = 0.7,
+    linewidth = 0.5
+  ) +
+  coord_cartesian(ylim = c(0, 100)) +
+  labs(
+    title = "GC percentage per interval across BED files",
+    x = "",
+    y = "GC percentage"
+  ) +
+  theme_classic(base_size = 11) +
+  theme(
+    axis.text.x = element_text(
+      angle = 60,
+      hjust = 1,
+      vjust = 1,
+      color = "black"
+    ),
+    axis.text.y = element_text(color = "black"),
+    axis.line = element_line(linewidth = 1.2, color = "black"),
+    axis.ticks = element_line(linewidth = 1.2, color = "black"),
+    axis.ticks.length = grid::unit(0.18, "cm"),
+    plot.title = element_text(color = "black"),
+    panel.grid = element_blank()
+  ) +
+  scale_y_continuous(
+    limits = c(0, 100),
+    expand = c(0, 0),
+    breaks = seq(0, 100, by = 20)
+  )
+
+# show in RStudio
+print(p)
+
+# save as PNG
+ggsave(
+  filename = out_png,
+  plot = p,
+  width = 10,
+  height = 4,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+
+message("Saved PNG: ", out_png)
+```
+
+
+
+
+
+
+
+
+```{r}
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(GenomeInfoDb)
+  library(BSgenome.Hsapiens.UCSC.hg38)
+  library(Biostrings)
+  library(SummarizedExperiment)
+  library(monaLisa)
+  library(ggplot2)
+  library(TFBSTools)
+  library(JASPAR2022)
+})
+
+set.seed(1)
+
+pwm_list <- readRDS("JASPAR2022_human_mouse_curated_0.95_pwms.rds")
+
+bed_dir <- "Cluster_beds_200bp_Final/Promoter_R6/"
+fg_file <- file.path(bed_dir, "Promoter1.bed")
+bg_file <- file.path(bed_dir, "Promoter_control_200bp_030326.bed")
+
+outdir <- "MONALisa_Promoter1_scrambled_vs_control_seed1_noReduce"
+dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+
+bed_to_gr <- function(f) {
+  x <- read.table(
+    f, sep = "\t", header = FALSE, comment.char = "",
+    stringsAsFactors = FALSE, quote = ""
+  )
+
+  x <- x[, 1:3]
+  colnames(x) <- c("seqnames", "start0", "end")
+
+  gr <- GRanges(
+    seqnames = x$seqnames,
+    ranges = IRanges(start = x$start0 + 1L, end = x$end)
+  )
+
+  seqlevelsStyle(gr) <- "UCSC"
+  gr
+}
+
+keep_ucsc_std <- function(gr, keep_chr) {
+  gr <- keepStandardChromosomes(gr, pruning.mode = "coarse")
+  gr <- gr[as.character(seqnames(gr)) %in% keep_chr]
+  sort(gr)
+}
+
+filter_gr_acgt <- function(gr, genome) {
+  if (length(gr) == 0) return(gr)
+  s <- getSeq(genome, gr)
+  keep <- grepl("^[ACGT]+$", as.character(s))
+  gr[keep]
+}
+
+scramble_seqset_preserve_composition <- function(seqs) {
+  scrambled <- vapply(as.character(seqs), function(x) {
+    chars <- strsplit(x, "", fixed = TRUE)[[1]]
+    paste(sample(chars, length(chars), replace = FALSE), collapse = "")
+  }, character(1))
+  DNAStringSet(scrambled)
+}
+
+gc_pct <- function(seqs) {
+  100 * (vcountPattern("G", seqs) + vcountPattern("C", seqs)) / width(seqs)
+}
+
+se_to_table <- function(se) {
+  data.frame(
+    motif_id      = rowData(se)$motif.id,
+    motif_name    = rowData(se)$motif.name,
+    log2enr       = assay(se, "log2enr")[, "fg"],
+    negLog10P     = assay(se, "negLog10P")[, "fg"],
+    negLog10Padj  = assay(se, "negLog10Padj")[, "fg"],
+    stringsAsFactors = FALSE
+  )
+}
+
+genome <- BSgenome.Hsapiens.UCSC.hg38
+keep_chr <- seqlevels(genome)
+
+fg <- bed_to_gr(fg_file)
+bg <- bed_to_gr(bg_file)
+
+fg <- keep_ucsc_std(fg, keep_chr)
+bg <- keep_ucsc_std(bg, keep_chr)
+
+# IMPORTANT: do not reduce; preserve 200 bp intervals
+fg <- filter_gr_acgt(fg, genome)
+bg <- filter_gr_acgt(bg, genome)
+
+message("Foreground width table:")
+print(table(width(fg)))
+
+message("Background width table:")
+print(table(width(bg)))
+
+fg_seq_original <- getSeq(genome, fg)
+bg_seq <- getSeq(genome, bg)
+
+fg_seq_scrambled <- scramble_seqset_preserve_composition(fg_seq_original)
+
+message("GC identical before vs scrambled: ",
+        all(gc_pct(fg_seq_original) == gc_pct(fg_seq_scrambled)))
+
+# strip names just to be safe
+names(fg_seq_scrambled) <- NULL
+names(bg_seq) <- NULL
+
+seqs <- c(fg_seq_scrambled, bg_seq)
+bins <- factor(
+  c(rep("fg", length(fg_seq_scrambled)), rep("bg", length(bg_seq))),
+  levels = c("fg", "bg")
+)
+
+se <- calcBinnedMotifEnrR(
+  seqs = seqs,
+  bins = bins,
+  pwmL = pwm_list,
+  background = "otherBins",
+  test = "fisher",
+  verbose = TRUE
+)
+
+tab <- se_to_table(se)
+tab <- tab[order(-tab$negLog10Padj, -tab$log2enr), ]
+
+write.table(
+  tab,
+  file = file.path(outdir, "Promoter1_scrambled_motif_enrichment.tsv"),
+  sep = "\t",
+  quote = FALSE,
+  row.names = FALSE
+)
+
+saveRDS(
+  se,
+  file = file.path(outdir, "Promoter1_scrambled_monaLisa.rds")
+)
+
+plot_df <- head(tab, 20)
+plot_df$label <- ifelse(
+  is.na(plot_df$motif_name) | plot_df$motif_name == "",
+  plot_df$motif_id,
+  paste0(plot_df$motif_name, " (", plot_df$motif_id, ")")
+)
+plot_df$label <- factor(plot_df$label, levels = rev(plot_df$label))
+
+p <- ggplot(plot_df, aes(x = label, y = log2enr, fill = negLog10Padj)) +
+  geom_col() +
+  coord_flip() +
+  theme_bw() +
+  labs(
+    title = "Scrambled Promoter1 vs Promoter control",
+    subtitle = "200 bp intervals preserved; base composition preserved within each interval",
+    x = "Motif",
+    y = "log2 enrichment"
+  )
+
+print(p)
+```
+```{r}
+# ============================================================
+# Compare unscrambled vs scrambled Promoter1 motif enrichment
+# against Promoter_control_200bp_030326
+# ============================================================
+
+suppressPackageStartupMessages({
+  library(GenomicRanges)
+  library(GenomeInfoDb)
+  library(BSgenome.Hsapiens.UCSC.hg38)
+  library(Biostrings)
+  library(SummarizedExperiment)
+  library(monaLisa)
+  library(ggplot2)
+  library(TFBSTools)
+  library(JASPAR2022)
+})
+
+set.seed(1)
+
+# -----------------------------
+# 0) Inputs
+# -----------------------------
+pwm_list <- readRDS("JASPAR2022_human_mouse_curated_0.95_pwms.rds")
+
+bed_dir <- "Cluster_beds_200bp_Final/Promoter_R6/"
+fg_file <- file.path(bed_dir, "Promoter1.bed")
+bg_file <- file.path(bed_dir, "Promoter_control_200bp_030326.bed")
+
+outdir <- "MONALisa_Promoter1_unscrambled_vs_scrambled_comparison_seed1"
+dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
+
+# -----------------------------
+# Helpers
+# -----------------------------
+bed_to_gr <- function(f) {
+  x <- read.table(
+    f, sep = "\t", header = FALSE, comment.char = "",
+    stringsAsFactors = FALSE, quote = ""
+  )
+
+  if (ncol(x) < 3) stop("BED has <3 columns: ", f)
+
+  x <- x[, 1:3]
+  colnames(x) <- c("seqnames", "start0", "end")
+
+  gr <- GRanges(
+    seqnames = x$seqnames,
+    ranges = IRanges(start = x$start0 + 1L, end = x$end)
+  )
+
+  seqlevelsStyle(gr) <- "UCSC"
+  gr
+}
+
+keep_ucsc_std <- function(gr, keep_chr) {
+  gr <- keepStandardChromosomes(gr, pruning.mode = "coarse")
+  gr <- gr[as.character(seqnames(gr)) %in% keep_chr]
+  sort(gr)
+}
+
+filter_gr_acgt <- function(gr, genome) {
+  if (length(gr) == 0) return(gr)
+  s <- getSeq(genome, gr)
+  keep <- grepl("^[ACGT]+$", as.character(s))
+  gr[keep]
+}
+
+scramble_seqset_preserve_composition <- function(seqs) {
+  scrambled <- vapply(as.character(seqs), function(x) {
+    chars <- strsplit(x, "", fixed = TRUE)[[1]]
+    paste(sample(chars, length(chars), replace = FALSE), collapse = "")
+  }, character(1))
+  DNAStringSet(scrambled)
+}
+
+gc_pct <- function(seqs) {
+  100 * (vcountPattern("G", seqs) + vcountPattern("C", seqs)) / width(seqs)
+}
+
+se_to_table <- function(se) {
+  data.frame(
+    motif_id      = rowData(se)$motif.id,
+    motif_name    = rowData(se)$motif.name,
+    log2enr       = assay(se, "log2enr")[, "fg"],
+    negLog10P     = assay(se, "negLog10P")[, "fg"],
+    negLog10Padj  = assay(se, "negLog10Padj")[, "fg"],
+    stringsAsFactors = FALSE
+  )
+}
+
+run_monalisa <- function(fg_seq, bg_seq, pwm_list) {
+  names(fg_seq) <- NULL
+  names(bg_seq) <- NULL
+
+  seqs <- c(fg_seq, bg_seq)
+  bins <- factor(
+    c(rep("fg", length(fg_seq)), rep("bg", length(bg_seq))),
+    levels = c("fg", "bg")
+  )
+
+  calcBinnedMotifEnrR(
+    seqs = seqs,
+    bins = bins,
+    pwmL = pwm_list,
+    background = "otherBins",
+    test = "fisher",
+    verbose = TRUE
+  )
+}
+
+# -----------------------------
+# 1) Load intervals
+# -----------------------------
+genome <- BSgenome.Hsapiens.UCSC.hg38
+keep_chr <- seqlevels(genome)
+
+fg <- bed_to_gr(fg_file)
+bg <- bed_to_gr(bg_file)
+
+fg <- keep_ucsc_std(fg, keep_chr)
+bg <- keep_ucsc_std(bg, keep_chr)
+
+# Keep original 200 bp intervals
+fg <- filter_gr_acgt(fg, genome)
+bg <- filter_gr_acgt(bg, genome)
+
+message("Foreground width table:")
+print(table(width(fg)))
+
+message("Background width table:")
+print(table(width(bg)))
+
+# -----------------------------
+# 2) Extract sequences
+# -----------------------------
+fg_seq_original <- getSeq(genome, fg)
+bg_seq <- getSeq(genome, bg)
+
+fg_seq_scrambled <- scramble_seqset_preserve_composition(fg_seq_original)
+
+message("GC identical before vs scrambled: ",
+        all(gc_pct(fg_seq_original) == gc_pct(fg_seq_scrambled)))
+
+# -----------------------------
+# 3) Run MonaLisa
+# -----------------------------
+message("Running unscrambled Promoter1...")
+se_uns <- run_monalisa(fg_seq_original, bg_seq, pwm_list)
+
+message("Running scrambled Promoter1...")
+se_scr <- run_monalisa(fg_seq_scrambled, bg_seq, pwm_list)
+
+# -----------------------------
+# 4) Save raw results
+# -----------------------------
+saveRDS(se_uns, file = file.path(outdir, "Promoter1_unscrambled_monaLisa.rds"))
+saveRDS(se_scr, file = file.path(outdir, "Promoter1_scrambled_monaLisa.rds"))
+
+tab_uns <- se_to_table(se_uns)
+tab_scr <- se_to_table(se_scr)
+
+tab_uns <- tab_uns[order(-tab_uns$negLog10Padj, -tab_uns$log2enr), ]
+tab_scr <- tab_scr[order(-tab_scr$negLog10Padj, -tab_scr$log2enr), ]
+
+write.table(
+  tab_uns,
+  file = file.path(outdir, "Promoter1_unscrambled_motif_enrichment.tsv"),
+  sep = "\t",
+  quote = FALSE,
+  row.names = FALSE
+)
+
+write.table(
+  tab_scr,
+  file = file.path(outdir, "Promoter1_scrambled_motif_enrichment.tsv"),
+  sep = "\t",
+  quote = FALSE,
+  row.names = FALSE
+)
+
+# -----------------------------
+# 5) Compare top motifs from unscrambled
+# -----------------------------
+n_top <- 20
+
+top_uns <- head(tab_uns, n_top)
+
+comp_df <- merge(
+  top_uns[, c("motif_id", "motif_name", "log2enr", "negLog10Padj")],
+  tab_scr[, c("motif_id", "motif_name", "log2enr", "negLog10Padj")],
+  by = c("motif_id", "motif_name"),
+  suffixes = c("_unscrambled", "_scrambled"),
+  all.x = TRUE
+)
+
+comp_df$label <- ifelse(
+  is.na(comp_df$motif_name) | comp_df$motif_name == "",
+  comp_df$motif_id,
+  paste0(comp_df$motif_name, " (", comp_df$motif_id, ")")
+)
+
+# keep order from unscrambled ranking
+comp_df$label <- factor(comp_df$label, levels = rev(comp_df$label[order(comp_df$negLog10Padj_unscrambled)]))
+
+write.table(
+  comp_df,
+  file = file.path(outdir, "Promoter1_unscrambled_vs_scrambled_topMotifs_comparison.tsv"),
+  sep = "\t",
+  quote = FALSE,
+  row.names = FALSE
+)
+
+# long format for plotting
+plot_df <- rbind(
+  data.frame(
+    label = comp_df$label,
+    condition = "Unscrambled",
+    log2enr = comp_df$log2enr_unscrambled,
+    negLog10Padj = comp_df$negLog10Padj_unscrambled,
+    stringsAsFactors = FALSE
+  ),
+  data.frame(
+    label = comp_df$label,
+    condition = "Scrambled",
+    log2enr = comp_df$log2enr_scrambled,
+    negLog10Padj = comp_df$negLog10Padj_scrambled,
+    stringsAsFactors = FALSE
+  )
+)
+
+plot_df$condition <- factor(plot_df$condition, levels = c("Unscrambled", "Scrambled"))
+
+# -----------------------------
+# 6) Plot comparison of log2 enrichment
+# -----------------------------
+p1 <- ggplot(plot_df, aes(x = label, y = log2enr, fill = condition)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  coord_flip() +
+  theme_bw(base_size = 11) +
+  labs(
+    title = "Promoter1 motif enrichment: unscrambled vs scrambled",
+    subtitle = paste0("Top ", n_top, " motifs ranked from unscrambled Promoter1"),
+    x = "Motif",
+    y = "log2 enrichment"
+  )
+
+print(p1)
+
+ggsave(
+  filename = file.path(outdir, "Promoter1_unscrambled_vs_scrambled_topMotifs_log2enr.png"),
+  plot = p1,
+  width = 9,
+  height = 6,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+
+# -----------------------------
+# 7) Optional second plot: delta enrichment
+# -----------------------------
+comp_df$delta_log2enr <- comp_df$log2enr_unscrambled - comp_df$log2enr_scrambled
+comp_df$label_delta <- factor(
+  comp_df$label,
+  levels = rev(comp_df$label[order(comp_df$delta_log2enr)])
+)
+
+p2 <- ggplot(comp_df, aes(x = label_delta, y = delta_log2enr)) +
+  geom_col(fill = "grey60", color = "black", width = 0.7) +
+  coord_flip() +
+  theme_bw(base_size = 11) +
+  labs(
+    title = "Difference in motif enrichment",
+    subtitle = "Unscrambled minus scrambled Promoter1",
+    x = "Motif",
+    y = "Delta log2 enrichment"
+  )
+
+print(p2)
+
+ggsave(
+  filename = file.path(outdir, "Promoter1_unscrambled_minus_scrambled_delta_log2enr.png"),
+  plot = p2,
+  width = 8,
+  height = 6,
+  units = "in",
+  dpi = 300,
+  bg = "white"
+)
+
+message("Done. Outputs in: ", outdir)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,1360 @@
+---
+title: "ArchR Analysis of PBMC H3K4me3 CoCnT Data with Doublet Removal"
+output: html_notebook
+---
+
+## PBMC H3K4me3 Workflow Files
+
+### Input Files
+
+- Bed files for each sample:
+* `../data/Janssens_Lab_Data/PBMCs_Combined_Beds/PBMC_CoCnT_K4me3_H2_010126.bed.gz`
+* `../data/Janssens_Lab_Data/PBMCs_Combined_Beds/PBMC_CoCnT_K4me3_H12_010126.bed.gz`
+* `../data/Janssens_Lab_Data/PBMCs_Combined_Beds/PBMC_CoCnT_K4me3_H23_010126.bed.gz`
+* `../data/Janssens_Lab_Data/PBMCs_Combined_Beds/PBMC_CoCnT_K4me3_H24_010126.bed.gz`
+
+- Arrow files for each sample (created from the bed files):
+* `./tmp/ArrowFiles/PBMC_CoCnT_K4me3_H2_010126.arrow`
+* `./tmp/ArrowFiles/PBMC_CoCnT_K4me3_H12_010126.arrow`
+* `./tmp/ArrowFiles/PBMC_CoCnT_K4me3_H23_010126.arrow`
+
+### Output Files And Directories
+
+- ArchR projects (intermediate and final):
+  * `./tmp/ArchRProjects_PBMC_H3K4me3_Doublet_Removal/` — initial project (all cells, pre-filter)
+  * `./tmp/ArchRProject_PBMCs_Combined_Beds_H3K4me3_100reads_remove_lowTSS_011526/` — after fragment count filter (>100 reads) and doublet scoring
+  * `./tmp/ArchRProjects_PBMCs_Combined_Beds_H3K4me3_Doublets_Removed_011526/` — after round 1 doublet cluster removal
+  * `./tmp/ArchRProjects_PBMCs_Combined_Beds_H3K4me3_Doublets_Removed_021126/` — after round 2 doublet cluster removal (final)
+
+- Figures:
+  * `./figures/H3K4me123_UMAP_TSSEnrichment_021226.png`
+  * `./figures/TSS_Enrichment_by_Cluster_boxplot_021226.png`
+  * `./figures/H3K4me123_UMAP_DoubletCall_021226.png`
+  * `./figures/PBMC_H3K4me3_ArchR_Doublets_RankOrder_011526_DR.png`
+  * `./figures/Proj1_PBMC_H3K4me3_UMAP_AllBlack_011526.png`
+  * `./figures/Proj2_PBMC_H3K4me3_UMAP_AllBlack_011526.png`
+  * `./figures/PBMC_H3K4me3_ArchR_Doublets_RankOrder_R2_011526.png`
+  * `./figures/Proj2_PBMC_H3K4me3_UMAP_AllBlack_011526_Doublets_Removed_R1.png`
+  * `./figures/Proj3_PBMC_H3K4me3_UMAP_AllBlack_011526_Doublets_Removed_R1.png`
+
+
+```{r, eval=F}
+## Command out to install ArchR and dependencies if needed.
+# install_path <- "/home/derek.janssens/R/x86_64-pc-linux-gnu-library/4.4"
+# .libPaths(install_path)
+# print(.libPaths(install_path))
+# install.packages("devtools", lib = install_path)
+# install.packages("Seurat", lib = install_path)
+# Install ArchR
+# if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager", lib = install_path)
+# devtools::install_github("GreenleafLab/ArchR", ref = "master",
+# 1                         repos = BiocManager::repositories(), lib = install_path)
+# install.packages("repr", lib = install_path)
+# ArchR::installExtraPackages()
+# devtools::install_github("immunogenomics/harmony", lib = install_path)
+# Install GenomicRanges and rtracklayer if not already installed
+# if (!requireNamespace("GenomicRanges", quietly = TRUE)) {
+#  install.packages("BiocManager")
+#  BiocManager::install("GenomicRanges")
+# }
+# if (!requireNamespace("rtracklayer", quietly = TRUE)) {
+#  BiocManager::install("rtracklayer")
+# }
+# install.packages("viridis")
+```
+
+
+```{r}
+suppressPackageStartupMessages({
+    library(ArchR)
+    library(parallel)
+    library(rtracklayer)
+    library(repr)
+    library(dplyr)
+    library(plyr)
+    library(Seurat)
+    library(ggplot2)
+    library(GenomicRanges)
+    library(rtracklayer)
+})
+set.seed(1)
+
+# Set default plot size
+options(repr.plot.width = 10, repr.plot.height = 10)
+```
+
+
+```{r}
+addArchRThreads(threads = 24)
+addArchRGenome("hg38")
+```
+
+```{r}
+# set project name and set sample names to the H3K27me3.bed.gz files
+
+proj_name <- "PBMC_H3K27me3_Doublet_Removal"
+sample_name1 <- "PBMC_CoCnT_K4me3_H2_010126"
+sample_name2 <- "PBMC_CoCnT_K4me3_H12_010126"
+sample_name3 <- "PBMC_CoCnT_K4me3_H23_010126"
+sample_name4 <- "PBMC_CoCnT_K4me3_H24_010126"
+```
+
+
+```{r}
+# For H3K27me3 set tilematparams (genomics bin size) to 50000 (50kb)
+tilematparams <- list(5000, FALSE)
+names(tilematparams) <- c("tileSize", "binarize")
+```
+
+```{r}
+# Set the directory to the location of the bed files, and specify the input files.
+
+indir <- "../data/Janssens_Lab_Data/PBMCs_Combined_Beds/"
+
+# vector of your dataset name variables
+sample_names <- c(sample_name1, sample_name2, sample_name3, sample_name4)
+#
+
+# build the full paths and name them
+inputFiles <- setNames(
+    paste0(indir, sample_names, ".bed.gz"),
+    sample_names
+)
+
+out_dir <- "./tmp/ArrowFiles/"
+dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+(old_dir <- getwd())
+setwd(out_dir)
+
+# Check the input paths
+inputFiles
+
+# Create Arrow files
+ArrowFiles <- createArrowFiles(
+    inputFiles = inputFiles,
+    sampleNames = names(inputFiles),
+    # filterTSS = 1, # depricaTRUEd to minTSS
+    minTSS = 0, # Dont set this too high because you can always increase later
+    # filterFrags = 3000, # depricated to minFrags
+    minFrags = 0,
+    maxFrags = Inf,
+    addTileMat = TRUE,
+    addGeneScoreMat = FALSE,
+    excludeChr = c("chrM"),
+    TileMatParams = tilematparams # ,
+    # force = TRUE
+    # removeFilteredCells = TRUE # seems to be removed with the other filter args
+)
+
+## go back to the original directory
+setwd(old_dir)
+```
+
+
+```{r}
+# For some reason AE_Hs_Ms_K27me3(H11)_wRb_K4me3(H2)_12XS_12XM_041725.arrow consistently had problems even after remaking the arrow file.
+
+# Combine Arrow files from H3K27me3 into proj_K27me3
+arrows_PBMC_1 <- "./tmp/ArrowFiles/PBMC_CoCnT_K4me3_H2_010126.arrow"
+arrows_PBMC_2 <- "./tmp/ArrowFiles/PBMC_CoCnT_K4me3_H12_010126.arrow"
+arrows_PBMC_3 <- "./tmp/ArrowFiles/PBMC_CoCnT_K4me3_H23_010126.arrow"
+
+# arrows_PBMC_4 = './tmp/ArrowFiles/PBMC_CoCnT_K4me3_H24_010126.arrow'
+
+
+inputFiles <- structure(
+    c(
+        arrows_PBMC_1,
+        arrows_PBMC_2,
+        arrows_PBMC_3 # ,
+        # arrows_PBMC_4
+    ),
+    .Names = c(
+        "PBMC_1",
+        "PBMC_2",
+        "PBMC_3" # ,
+        #' PBMC_4'
+    )
+)
+
+proj <- ArchRProject(
+    ArrowFiles = inputFiles,
+    outputDirectory = "./tmp/ArchRProjects_PBMC_H3K4me3_Doublet_Removal/",
+    copyArrows = FALSE,
+    showLogo = FALSE
+)
+```
+
+
+```{r}
+# plot frag distribution
+low_cutoff <- 100
+hi_cutoff <- 50000
+
+hist(log10(getCellColData(proj[(proj$Sample == "PBMC_CoCnT_K4me3_H2_010126")])$nFrags), breaks = 100)
+# hist(log10(getCellColData(proj[(proj$Sample == 'PBMC_CoCnT_K4me3_H12_010126')])$nFrags), breaks = 100)
+# hist(log10(getCellColData(proj[(proj$Sample == 'PBMC_CoCnT_K4me3_H23_010126')])$nFrags), breaks = 100)
+# hist(log10(getCellColData(proj[(proj$Sample == 'PBMC_CoCnT_K4me3_H24_010126')])$nFrags), breaks = 100)
+abline(v = log10(low_cutoff), col = "blue", lwd = 0.5)
+abline(v = log10(hi_cutoff), col = "red", lwd = 0.5)
+```
+```{r}
+# plot frag distribution
+low_cutoff <- 100
+hi_cutoff <- 50000
+
+# hist(log10(getCellColData(proj[(proj$Sample == 'PBMC_CoCnT_K4me3_H2_010126')])$nFrags), breaks = 100)
+hist(log10(getCellColData(proj[(proj$Sample == "PBMC_CoCnT_K4me3_H12_010126")])$nFrags), breaks = 100)
+# hist(log10(getCellColData(proj[(proj$Sample == 'PBMC_CoCnT_K4me3_H23_010126')])$nFrags), breaks = 100)
+# hist(log10(getCellColData(proj[(proj$Sample == 'PBMC_CoCnT_K4me3_H24_010126')])$nFrags), breaks = 100)
+abline(v = log10(low_cutoff), col = "blue", lwd = 0.5)
+abline(v = log10(hi_cutoff), col = "red", lwd = 0.5)
+```
+
+```{r}
+# plot frag distribution
+low_cutoff <- 100
+hi_cutoff <- 50000
+
+# hist(log10(getCellColData(proj[(proj$Sample == 'PBMC_CoCnT_K4me3_H2_010126')])$nFrags), breaks = 100)
+# hist(log10(getCellColData(proj[(proj$Sample == 'PBMC_CoCnT_K4me3_H12_010126')])$nFrags), breaks = 100)
+hist(log10(getCellColData(proj[(proj$Sample == "PBMC_CoCnT_K4me3_H23_010126")])$nFrags), breaks = 100)
+# hist(log10(getCellColData(proj[(proj$Sample == 'PBMC_CoCnT_K4me3_H24_010126')])$nFrags), breaks = 100)
+abline(v = log10(low_cutoff), col = "blue", lwd = 0.5)
+abline(v = log10(hi_cutoff), col = "red", lwd = 0.5)
+```
+
+```{r, eval=F}
+# plot frag distribution
+low_cutoff <- 100
+hi_cutoff <- 50000
+
+# hist(log10(getCellColData(proj[(proj$Sample == 'PBMC_CoCnT_K4me3_H2_010126')])$nFrags), breaks = 100)
+# hist(log10(getCellColData(proj[(proj$Sample == 'PBMC_CoCnT_K4me3_H12_010126')])$nFrags), breaks = 100)
+# hist(log10(getCellColData(proj[(proj$Sample == 'PBMC_CoCnT_K4me3_H23_010126')])$nFrags), breaks = 100)
+hist(log10(getCellColData(proj[(proj$Sample == "PBMC_CoCnT_K4me3_H24_010126")])$nFrags), breaks = 100)
+abline(v = log10(low_cutoff), col = "blue", lwd = 0.5)
+abline(v = log10(hi_cutoff), col = "red", lwd = 0.5)
+```
+```{r}
+# Get the total number of cells in the ArchR project
+num_cells <- nCells(proj)
+
+# Print the number of cells
+cat("Number of cells in the ArchR project:", num_cells, "\n")
+```
+
+```{r}
+# subset proj and catalogue
+proj <- proj[((proj$nFrags > low_cutoff) == TRUE)]
+
+# proj_2 = proj[((proj$nFrags > low_cutoff) == TRUE) & ((proj$nFrags < hi_cutoff) == TRUE)]
+```
+
+```{r}
+# Get the total number of cells in the ArchR project
+num_cells <- nCells(proj)
+
+# Print the number of cells
+cat("Number of cells in the ArchR project:", num_cells, "\n")
+```
+
+
+
+```{r}
+# SVD, UMAP, and Clustering including Batch Correction using Harmony
+
+UMAP_Harmony_clusters <- function(proj) {
+    # SVD
+    proj <- addIterativeLSI(
+        ArchRProj = proj,
+        useMatrix = "TileMatrix",
+        name = "IterativeLSI",
+        iterations = 2,
+        dimsToUse = 1:15,
+        varFeatures = 200000,
+        clusterParams = list( # See Seurat::FindClusters,
+            resolution = c(0.1, 0.3),
+            sampleCells = 8000,
+            n.start = 10
+        ),
+        outlierQuantiles = c(0.025, 0.975),
+        verbose = FALSE,
+        force = TRUE
+    )
+    # UMAP
+    proj <- addUMAP(
+        ArchRProj = proj,
+        reducedDims = "IterativeLSI",
+        name = "UMAP",
+        nNeighbors = 40,
+        minDist = 0.4,
+        metric = "cosine",
+        verbose = FALSE,
+        force = TRUE
+    )
+
+    proj <- addHarmony(
+        ArchRProj = proj,
+        reducedDims = "IterativeLSI", # The dimension reduction to use (e.g., IterativeLSI or PCA)
+        name = "Harmony", # Name of the batch-corrected reducedDims to save
+        groupBy = "Sample", # The batch variable to correct
+        force = TRUE
+    )
+
+    # Add UMAP using Harmony-Corrected Dimensions
+    proj <- addUMAP(
+        ArchRProj = proj,
+        reducedDims = "Harmony", # Use the Harmony-corrected reducedDims
+        name = "UMAP_Harmony", # Name for the UMAP embedding
+        nNeighbors = 40, # Number of neighbors
+        minDist = 0.4, # Minimum distance for UMAP
+        metric = "cosine", # Distance metric for UMAP
+        force = TRUE
+    )
+    proj <- addClusters(
+        input = proj,
+        method = "Seurat",
+        name = "Clusters",
+        reducedDims = "Harmony",
+        resolution = 20,
+        maxClusters = 100,
+        verbose = FALSE,
+        force = TRUE
+    )
+
+    # Save
+    # p1 <- plotEmbedding(ArchRProj = proj, colorBy = "cellColData", name = "Clusters", embedding = "UMAP")
+    # plotPDF(p1, name = "Plot-UMAP-Sample-Clusters_1.pdf", ArchRProj = proj, addDOC = FALSE, width = 5, height = 5)
+    return(proj)
+}
+```
+
+```{r}
+# UMAP + clustering over all cells and catalogue
+proj <- UMAP_Harmony_clusters(proj)
+```
+
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj, colorBy = "cellColData",
+    name = "nFrags",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj, colorBy = "cellColData",
+    name = "Sample",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj, colorBy = "cellColData",
+    name = "TSSEnrichment",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+```{r}
+proj <- addClusters(
+    input = proj,
+    method = "Seurat",
+    name = "Clusters",
+    reducedDims = "Harmony",
+    resolution = 2,
+    maxClusters = 25,
+    verbose = FALSE,
+    force = TRUE
+)
+```
+
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj, colorBy = "cellColData",
+    name = "Clusters",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+```{r}
+# Step 1: Extract UMAP Data and TSS Enrichment
+library(dplyr)
+library(ggplot2)
+library(scales)
+
+umap_df <- proj@cellColData %>% data.frame()
+umap_df$UMAP_1 <- proj@embeddings$UMAP_Harmony$df[, 1]
+umap_df$UMAP_2 <- proj@embeddings$UMAP_Harmony$df[, 2]
+
+# Pull TSS enrichment (ArchR often stores this as TSSEnrichment)
+# If your column name differs, run: colnames(umap_df) and adjust
+umap_df$TSS <- umap_df$TSSEnrichment
+
+# Calculate percentiles
+min_tss <- min(umap_df$TSS, na.rm = TRUE)
+tss_5th <- quantile(umap_df$TSS, probs = 0.05, na.rm = TRUE)
+tss_10th <- quantile(umap_df$TSS, probs = 0.10, na.rm = TRUE)
+tss_25th <- quantile(umap_df$TSS, probs = 0.25, na.rm = TRUE)
+tss_75th <- quantile(umap_df$TSS, probs = 0.75, na.rm = TRUE)
+max_tss <- max(umap_df$TSS, na.rm = TRUE)
+
+# Step 2: Create the UMAP Plot Colored by TSS Enrichment
+output_file <- "./figures/H3K4me123_UMAP_TSSEnrichment_021226.png"
+
+umap_plot <- ggplot(umap_df, aes(
+    x = UMAP_1,
+    y = UMAP_2,
+    color = TSS
+)) +
+    geom_point(size = 0.5) +
+    theme_void() +
+    theme(
+        plot.title = element_blank(),
+        strip.text = element_blank(),
+        legend.position = "right",
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 12, face = "bold")
+    ) +
+    scale_color_gradientn(
+        colors = c("darkblue", "blue", "skyblue", "orange", "red", "darkred"),
+        values = scales::rescale(
+            c(min_tss, tss_5th, tss_10th, tss_25th, tss_75th, max_tss),
+            from = c(min_tss, max_tss)
+        ),
+        name = "TSS Enrichment",
+        limits = c(min_tss, max_tss)
+    )
+
+ggsave(
+    filename = output_file,
+    plot = umap_plot,
+    device = "png",
+    width = 6,
+    height = 6,
+    dpi = 300
+)
+
+print(umap_plot)
+```
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+
+# Build a plotting data.frame
+df <- proj@cellColData %>% as.data.frame()
+
+# Adjust if your cluster column is named differently:
+df$Cluster <- df$Clusters
+df$TSS <- df$TSSEnrichment
+
+df <- df %>% filter(!is.na(TSS), !is.na(Cluster))
+
+# Order clusters by median TSS (optional)
+cluster_order <- df %>%
+    group_by(Cluster) %>%
+    summarize(med = median(TSS, na.rm = TRUE), .groups = "drop") %>%
+    arrange(med) %>%
+    pull(Cluster)
+df$Cluster <- factor(df$Cluster, levels = cluster_order)
+
+# Define fill colors: default steelblue, highlight selected clusters in red
+highlight <- c("C1", "C2", "C24", "C5")
+df$FillGroup <- ifelse(as.character(df$Cluster) %in% highlight, "highlight", "other")
+
+fill_pal <- c("highlight" = "blue", "other" = "red")
+
+# Boxplot only (no dots), filled by group
+p <- ggplot(df, aes(x = Cluster, y = TSS, fill = FillGroup)) +
+    geom_boxplot(outlier.shape = NA, width = 0.7, color = "black") +
+    scale_fill_manual(values = fill_pal, guide = "none") +
+    labs(x = "Cluster", y = "TSS Enrichment") +
+    theme_classic() +
+    theme(
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.title = element_text(size = 12, face = "bold")
+    )
+p <- p + coord_cartesian(ylim = c(0, 22.5))
+
+
+print(p)
+
+# Optional save
+ggsave("./figures/TSS_Enrichment_by_Cluster_boxplot_021226.png",
+    p,
+    width = 7, height = 4, dpi = 300
+)
+```
+
+
+```{r}
+# Get the total number of cells in the ArchR project
+num_cells <- nCells(proj)
+
+# Print the number of cells
+cat("Number of cells in the ArchR project:", num_cells, "\n")
+```
+
+```{r}
+# Identify and remove high-doublet clusters (> 8.5%)
+high_doublet_clusters <- c("C1", "C2", "C24", "C5") #
+message("Removing clusters with >8.5% doublets: ", paste(high_doublet_clusters, collapse = ", "))
+
+# Subset ArchRProject to exclude those clusters
+proj <- proj[!(proj$Clusters %in% high_doublet_clusters), ]
+
+# Optional: verify removal
+table(proj$Clusters)
+```
+
+```{r}
+# Get the total number of cells in the ArchR project
+num_cells <- nCells(proj)
+
+# Print the number of cells
+cat("Number of cells in the ArchR project:", num_cells, "\n")
+```
+
+```{r}
+# UMAP + clustering over all cells and catalogue
+proj <- UMAP_Harmony_clusters(proj)
+```
+
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj, colorBy = "cellColData",
+    name = "Sample",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+
+
+```{r}
+proj <- addDoubletScores(
+    input = proj,
+    useMatrix = "TileMatrix",
+    k = 10,
+    # nTrials = 5,
+    dimsToUse = 1:15,
+    LSIMethod = 1,
+    scaleDims = FALSE,
+    corCutOff = 0.75,
+    knnMethod = "UMAP_Harmony",
+    UMAPParams = list(
+        n_neighbors = 40, min_dist = 0.4, metric = "euclidean", verbose =
+            FALSE
+    ),
+    LSIParams = list(outlierQuantiles = NULL, filterBias = FALSE),
+    # outDir = getOutputDirectory(input),
+    # threads = getArchRThreads(),
+    force = FALSE,
+    parallelParam = NULL,
+    verbose = TRUE,
+    logFile = createLogFile("addDoubletScores")
+)
+```
+
+
+```{r}
+saveArchRProject(
+    ArchRProj = proj,
+    outputDirectory = "./tmp/ArchRProject_PBMCs_Combined_Beds_H3K4me3_100reads_remove_lowTSS_011526/",
+    overwrite = TRUE,
+    load = TRUE,
+    dropCells = FALSE,
+    logFile = createLogFile("saveArchRProject"),
+    threads = getArchRThreads()
+)
+```
+
+```{r}
+proj <- loadArchRProject(path = "./tmp/ArchRProject_PBMCs_Combined_Beds_H3K4me3_100reads_remove_lowTSS_011526/", force = FALSE, showLogo = TRUE)
+
+getEmbedding(ArchRProj = proj, embedding = "UMAP_Harmony", returnDF = TRUE)
+```
+
+
+
+```{r}
+proj <- addClusters(
+    input = proj,
+    method = "Seurat",
+    name = "Clusters",
+    reducedDims = "Harmony",
+    resolution = 2,
+    maxClusters = 25,
+    verbose = FALSE,
+    force = TRUE
+)
+```
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj, colorBy = "cellColData",
+    name = "Clusters",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+```{r}
+colnames(getCellColData(proj))
+```
+
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj, colorBy = "cellColData",
+    name = "DoubletEnrichment",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj, colorBy = "cellColData",
+    name = "Clusters",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+```{r}
+# UMAP colored by singlet/doublet call (DoubletEnrichment threshold)
+library(dplyr)
+library(ggplot2)
+
+# 1) Build df with UMAP + metadata
+df <- proj@cellColData %>% as.data.frame()
+df$UMAP_1 <- proj@embeddings$UMAP_Harmony$df[, 1]
+df$UMAP_2 <- proj@embeddings$UMAP_Harmony$df[, 2]
+
+# Make sure these columns exist in df; otherwise adjust names
+# (often already in cellColData)
+# df$DoubletEnrichment <- df$DoubletEnrichment
+
+# 2) Call doublets vs singlets
+threshold <- 2
+df$call <- ifelse(df$DoubletEnrichment > threshold, "doublet", "singlet")
+df$call <- factor(df$call, levels = c("singlet", "doublet"))
+
+# 3) Plot
+output_file <- "./figures/H3K4me123_UMAP_DoubletCall_021226.png"
+
+p <- ggplot(df, aes(x = UMAP_1, y = UMAP_2, color = call)) +
+    geom_point(size = 0.5) +
+    theme_void() +
+    theme(
+        plot.title = element_blank(),
+        strip.text = element_blank(),
+        legend.position = "right",
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 12, face = "bold")
+    ) +
+    scale_color_manual(
+        values = c("singlet" = "steelblue", "doublet" = "red"),
+        name = "Doublet call"
+    )
+
+ggsave(
+    filename = output_file,
+    plot = p,
+    device = "png",
+    width = 6,
+    height = 6,
+    dpi = 300
+)
+
+print(p)
+```
+
+```{r}
+library(ArchR)
+library(dplyr)
+library(ggplot2)
+
+# 1. Extract metadata
+df <- data.frame(getCellColData(proj, select = c("DoubletEnrichment", "Clusters")))
+
+# 2. Call doublets (OPTION 1: threshold-based)
+df$call <- ifelse(df$DoubletEnrichment > 2, "doublet", "singlet") # adjust threshold as needed
+
+# 2b. (OPTION 2: quantile-based cutoff)
+# quantile_cutoff <- quantile(df$DoubletEnrichment, 0.95)
+# df$call <- ifelse(df$DoubletEnrichment > quantile_cutoff, "doublet", "singlet")
+
+# 3. Calculate percentage of doublets per cluster
+df_summary <- df %>%
+    dplyr::group_by(Clusters, call) %>%
+    dplyr::tally() %>%
+    dplyr::group_by(Clusters) %>%
+    dplyr::mutate(
+        total = sum(n),
+        perc = n / total * 100
+    ) %>%
+    dplyr::filter(call == "doublet") %>%
+    dplyr::arrange(desc(perc))
+
+
+# 4. Plot rank-ordered dot plot
+rank_order_dot_plot <- ggplot(df_summary, aes(x = reorder(Clusters, -perc), y = perc)) +
+    geom_point(size = 6, color = "steelblue") +
+    geom_hline(yintercept = 40, color = "red", linetype = "dotted", size = 3) +
+    theme_bw() +
+    theme(
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid = element_blank(),
+        panel.border = element_rect(size = 3, color = "black")
+    ) +
+    labs(
+        x = "Cluster",
+        y = "Percentage of Doublets (%)",
+        title = "Percentage of ArchR-Inferred Doublets by Cluster (Rank-Ordered)"
+    )
+
+# 5. Show and save plot
+print(rank_order_dot_plot)
+
+ggsave(
+    filename = "./figures/PBMC_H3K4me3_ArchR_Doublets_RankOrder_011526_DR.png",
+    plot = rank_order_dot_plot,
+    device = "png",
+    width = 8,
+    height = 6,
+    dpi = 300
+)
+
+# Optional: Remove doublet-prone clusters
+# high_doublet_clusters <- df_summary$Clusters[df_summary$perc > 15]
+# proj <- proj[!(proj$Clusters %in% high_doublet_clusters)]
+```
+
+```{r}
+# Get the total number of cells in the ArchR project
+num_cells <- nCells(proj)
+
+# Print the number of cells
+cat("Number of cells in the ArchR project:", num_cells, "\n")
+```
+
+```{r}
+# Identify and remove high-doublet clusters (> 8.5%)
+high_doublet_clusters <- df_summary$Clusters[df_summary$perc > 40]
+message("Removing clusters with >8.5% doublets: ", paste(high_doublet_clusters, collapse = ", "))
+
+proj_2 <- proj[!(proj$Clusters %in% high_doublet_clusters), ]
+
+# Optional: verify removal
+table(proj_2$Clusters)
+```
+
+```{r}
+# Get the total number of cells in the ArchR project
+num_cells <- nCells(proj_2)
+
+# Print the number of cells
+cat("Number of cells in the ArchR project:", num_cells, "\n")
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Extract UMAP coordinates from ArchR object
+umap_df <- proj@cellColData %>% data.frame()
+umap_df$UMAP_1 <- proj@embeddings$UMAP_Harmony$df[, 1]
+umap_df$UMAP_2 <- proj@embeddings$UMAP_Harmony$df[, 2]
+
+# Define the output file path
+output_file <- "./figures/Proj1_PBMC_H3K4me3_UMAP_AllBlack_011526.png"
+
+# Plot all cells in black
+umap_plot_black <- ggplot(umap_df, aes(x = UMAP_1, y = UMAP_2)) +
+    geom_point(color = "black", size = 0.5) +
+    theme_void() +
+    theme(
+        legend.position = "none",
+        plot.title = element_blank(),
+        strip.text = element_blank(),
+        panel.border = element_rect(color = "black", fill = NA, linewidth = 1.2)
+    )
+
+# Save the UMAP plot
+ggsave(
+    filename = output_file,
+    plot = umap_plot_black,
+    device = "png",
+    width = 6,
+    height = 6,
+    dpi = 300
+)
+
+# Also print it to screen
+print(umap_plot_black)
+```
+
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Extract UMAP coordinates from ArchR object
+umap_df <- proj_2@cellColData %>% data.frame()
+umap_df$UMAP_1 <- proj_2@embeddings$UMAP_Harmony$df[, 1]
+umap_df$UMAP_2 <- proj_2@embeddings$UMAP_Harmony$df[, 2]
+
+# Define the output file path
+output_file <- "./figures/Proj2_PBMC_H3K4me3_UMAP_AllBlack_011526.png"
+
+# Plot all cells in black
+umap_plot_black <- ggplot(umap_df, aes(x = UMAP_1, y = UMAP_2)) +
+    geom_point(color = "black", size = 0.5) +
+    theme_void() +
+    theme(
+        legend.position = "none",
+        plot.title = element_blank(),
+        strip.text = element_blank(),
+        panel.border = element_rect(color = "black", fill = NA, linewidth = 1.2)
+    )
+
+# Save the UMAP plot
+ggsave(
+    filename = output_file,
+    plot = umap_plot_black,
+    device = "png",
+    width = 6,
+    height = 6,
+    dpi = 300
+)
+
+# Also print it to screen
+print(umap_plot_black)
+```
+
+```{r}
+# UMAP + clustering over all cells and catalogue
+proj_2 <- UMAP_Harmony_clusters(proj_2)
+```
+
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj_2, colorBy = "cellColData",
+    name = "nFrags",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj_2, colorBy = "cellColData",
+    name = "Sample",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+
+```{r}
+proj_2 <- addClusters(
+    input = proj_2,
+    method = "Seurat",
+    name = "Clusters",
+    reducedDims = "Harmony",
+    resolution = 20,
+    maxClusters = 100,
+    verbose = FALSE,
+    force = TRUE
+)
+```
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj_2, colorBy = "cellColData",
+    name = "Clusters",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+
+
+
+```{r}
+library(ArchR)
+library(dplyr)
+library(ggplot2)
+
+# 1. Extract metadata
+df <- data.frame(getCellColData(proj_2, select = c("DoubletEnrichment", "Clusters")))
+
+# 2. Call doublets (OPTION 1: threshold-based)
+df$call <- ifelse(df$DoubletEnrichment > 3, "doublet", "singlet") # adjust threshold as needed
+
+# 2b. (OPTION 2: quantile-based cutoff)
+# quantile_cutoff <- quantile(df$DoubletEnrichment, 0.95)
+# df$call <- ifelse(df$DoubletEnrichment > quantile_cutoff, "doublet", "singlet")
+
+# 3. Calculate percentage of doublets per cluster
+df_summary <- df %>%
+    dplyr::group_by(Clusters, call) %>%
+    dplyr::tally() %>%
+    dplyr::group_by(Clusters) %>%
+    dplyr::mutate(
+        total = sum(n),
+        perc = n / total * 100
+    ) %>%
+    dplyr::filter(call == "doublet") %>%
+    dplyr::arrange(desc(perc))
+
+
+# 4. Plot rank-ordered dot plot
+rank_order_dot_plot <- ggplot(df_summary, aes(x = reorder(Clusters, -perc), y = perc)) +
+    geom_point(size = 3, color = "steelblue") +
+    geom_hline(yintercept = 13, color = "red", linetype = "dotted", size = 1.2) +
+    theme_bw() +
+    theme(
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid = element_blank(),
+        panel.border = element_rect(size = 1.5, color = "black")
+    ) +
+    labs(
+        x = "Cluster",
+        y = "Percentage of Doublets (%)",
+        title = "Percentage of ArchR-Inferred Doublets by Cluster (Rank-Ordered)"
+    )
+
+# 5. Show and save plot
+print(rank_order_dot_plot)
+
+ggsave(
+    filename = "./figures/PBMC_H3K4me3_ArchR_Doublets_RankOrder_R2_011526.png",
+    plot = rank_order_dot_plot,
+    device = "png",
+    width = 8,
+    height = 6,
+    dpi = 300
+)
+
+# Optional: Remove doublet-prone clusters
+# high_doublet_clusters <- df_summary$Clusters[df_summary$perc > 15]
+# proj <- proj[!(proj$Clusters %in% high_doublet_clusters)]
+```
+
+
+```{r}
+# Get the total number of cells in the ArchR project
+num_cells <- nCells(proj_2)
+
+# Print the number of cells
+cat("Number of cells in the ArchR project:", num_cells, "\n")
+```
+
+```{r}
+# Identify and remove high-doublet clusters (> 8.5%)
+high_doublet_clusters <- df_summary$Clusters[df_summary$perc > 13]
+message("Removing clusters with >8.5% doublets: ", paste(high_doublet_clusters, collapse = ", "))
+
+proj_3 <- proj_2[!(proj_2$Clusters %in% high_doublet_clusters), ]
+
+# Optional: verify removal
+table(proj_3$Clusters)
+```
+
+```{r}
+# Get the total number of cells in the ArchR project
+num_cells <- nCells(proj_3)
+
+# Print the number of cells
+cat("Number of cells in the ArchR project:", num_cells, "\n")
+```
+
+
+```{r}
+# Identify and remove high-doublet clusters (> 8.5%)
+high_doublet_clusters <- c("C1", "C2", "C4", "C19", "C83", "C87") #
+message("Removing clusters with >8.5% doublets: ", paste(high_doublet_clusters, collapse = ", "))
+
+# Subset ArchRProject to exclude those clusters
+proj_3 <- proj_3[!(proj_3$Clusters %in% high_doublet_clusters), ]
+
+# Optional: verify removal
+table(proj_3$Clusters)
+```
+
+```{r}
+# Get the total number of cells in the ArchR project
+num_cells <- nCells(proj_3)
+
+# Print the number of cells
+cat("Number of cells in the ArchR project:", num_cells, "\n")
+```
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Extract UMAP coordinates from ArchR object
+umap_df <- proj_2@cellColData %>% data.frame()
+umap_df$UMAP_1 <- proj_2@embeddings$UMAP_Harmony$df[, 1]
+umap_df$UMAP_2 <- proj_2@embeddings$UMAP_Harmony$df[, 2]
+
+# Define the output file path
+output_file <- "./figures/Proj2_PBMC_H3K4me3_UMAP_AllBlack_011526_Doublets_Removed_R1.png"
+
+# Plot all cells in black
+umap_plot_black <- ggplot(umap_df, aes(x = UMAP_1, y = UMAP_2)) +
+    geom_point(color = "black", size = 0.5) +
+    theme_void() +
+    theme(
+        legend.position = "none",
+        plot.title = element_blank(),
+        strip.text = element_blank(),
+        panel.border = element_rect(color = "black", fill = NA, linewidth = 1.2)
+    )
+
+# Save the UMAP plot
+ggsave(
+    filename = output_file,
+    plot = umap_plot_black,
+    device = "png",
+    width = 6,
+    height = 6,
+    dpi = 300
+)
+
+# Also print it to screen
+print(umap_plot_black)
+```
+
+
+
+
+
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Extract UMAP coordinates from ArchR object
+umap_df <- proj_3@cellColData %>% data.frame()
+umap_df$UMAP_1 <- proj_3@embeddings$UMAP_Harmony$df[, 1]
+umap_df$UMAP_2 <- proj_3@embeddings$UMAP_Harmony$df[, 2]
+
+# Define the output file path
+output_file <- "./figures/Proj3_PBMC_H3K4me3_UMAP_AllBlack_011526_Doublets_Removed_R1.png"
+
+# Plot all cells in black
+umap_plot_black <- ggplot(umap_df, aes(x = UMAP_1, y = UMAP_2)) +
+    geom_point(color = "black", size = 0.5) +
+    theme_void() +
+    theme(
+        legend.position = "none",
+        plot.title = element_blank(),
+        strip.text = element_blank(),
+        panel.border = element_rect(color = "black", fill = NA, linewidth = 1.2)
+    )
+
+# Save the UMAP plot
+ggsave(
+    filename = output_file,
+    plot = umap_plot_black,
+    device = "png",
+    width = 6,
+    height = 6,
+    dpi = 300
+)
+
+# Also print it to screen
+print(umap_plot_black)
+```
+
+```{r}
+# UMAP + clustering over all cells and catalogue
+proj_3 <- UMAP_Harmony_clusters(proj_3)
+```
+
+
+
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj_3, colorBy = "cellColData",
+    name = "nFrags",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj_3, colorBy = "cellColData",
+    name = "Sample",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+
+```{r}
+proj_3 <- addClusters(
+    input = proj_3,
+    method = "Seurat",
+    name = "Clusters",
+    reducedDims = "Harmony",
+    resolution = 2,
+    maxClusters = 25,
+    verbose = FALSE,
+    force = TRUE
+)
+```
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj_3, colorBy = "cellColData",
+    name = "Clusters",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+
+
+
+```{r}
+proj_3 <- addGeneScoreMatrix(proj_3, force = TRUE) # , , useTSS = TRUE
+
+proj_3 <- addImputeWeights(proj_3)
+```
+
+
+```{r}
+subsetArchRProject(
+    ArchRProj = proj_3,
+    cells = getCellNames(proj_3),
+    outputDirectory = "./tmp/ArchRProjects_PBMCs_Combined_Beds_H3K4me3_Doublets_Removed_011526/",
+    dropCells = TRUE,
+    logFile = NULL,
+    threads = getArchRThreads(),
+    force = TRUE
+)
+```
+
+```{r}
+proj <- loadArchRProject(path = "./tmp/ArchRProjects_PBMCs_Combined_Beds_H3K4me3_Doublets_Removed_011526/", force = FALSE, showLogo = TRUE)
+
+getEmbedding(ArchRProj = proj, embedding = "UMAP_Harmony", returnDF = TRUE)
+```
+
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj, colorBy = "cellColData",
+    name = "Clusters",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+```{r}
+# Identify and remove high-doublet clusters (> 8.5%)
+high_doublet_clusters <- c("C15") # , 'C99'
+message("Removing clusters with >8.5% doublets: ", paste(high_doublet_clusters, collapse = ", "))
+
+# Subset ArchRProject to exclude those clusters
+proj <- proj[!(proj$Clusters %in% high_doublet_clusters), ]
+
+# Optional: verify removal
+table(proj$Clusters)
+```
+
+```{r}
+# UMAP + clustering over all cells and catalogue
+proj <- UMAP_Harmony_clusters(proj)
+```
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj, colorBy = "cellColData",
+    name = "nFrags",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj, colorBy = "cellColData",
+    name = "Clusters",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+```{r}
+# Identify and remove high-doublet clusters (> 8.5%)
+high_doublet_clusters <- c("C25") # , 'C99'
+message("Removing clusters with >8.5% doublets: ", paste(high_doublet_clusters, collapse = ", "))
+
+# Subset ArchRProject to exclude those clusters
+proj <- proj[!(proj$Clusters %in% high_doublet_clusters), ]
+
+# Optional: verify removal
+table(proj$Clusters)
+```
+
+```{r}
+# UMAP + clustering over all cells and catalogue
+proj <- UMAP_Harmony_clusters(proj)
+```
+
+```{r}
+# Visualize clusters
+plotEmbedding(
+    ArchRProj = proj, colorBy = "cellColData",
+    name = "Clusters",
+    embedding = "UMAP_Harmony",
+    size = 0.5,
+    # pal= paletteContinuous(),
+    plotAs = "points",
+    # imputeWeights = getImputeWeights(proj),
+    colorTitle = "mark"
+) + theme_void() + theme(plot.title = element_blank()) #+ NoLegend()
+```
+
+
+
+
+```{r}
+proj <- addGeneScoreMatrix(proj, force = TRUE) # , , useTSS = TRUE
+
+proj <- addImputeWeights(proj)
+```
+
+
+```{r}
+subsetArchRProject(
+    ArchRProj = proj,
+    cells = getCellNames(proj),
+    outputDirectory = "./tmp/ArchRProjects_PBMCs_Combined_Beds_H3K4me3_Doublets_Removed_021126/",
+    dropCells = TRUE,
+    logFile = NULL,
+    threads = getArchRThreads(),
+    force = TRUE
+)
+```
+
+
+
+
