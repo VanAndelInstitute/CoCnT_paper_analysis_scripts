@@ -7,7 +7,7 @@
 ## - ../data/sample_sheet_PR001799.tsv
 ## - ../data/sample_sheet_PR001855.tsv
 ## - ../data/sample_sheet_PR001856.tsv
-## - raw BED fragment files under ../data/Janssens_Lab_Data/*/BED/
+## - raw BED fragment files under ../data/Janssens_Lab_Data/BMMC_Beds/*/BED/
 ## Outputs:
 ## - ./tmp/all_fragments.rds
 ## - ../tmp/cell_fragments.tsv
@@ -34,10 +34,10 @@ sample_sheet[, .N, by = .(library_type, antibody_target, co_antibody_target, ant
 
 
 #+ eval=F
-bed_file1 = dir("../../data/Janssens_Lab_Data/PR001798_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/", pattern = "bed.gz$", full = T)
-bed_file2 = dir("../../data/Janssens_Lab_Data/PR001799_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/", pattern = "bed.gz$", full = T)
-bed_file3 = dir("../../data/Janssens_Lab_Data/PR001855_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/", pattern = "bed.gz$", full = T)
-bed_file4 = dir("../../data/Janssens_Lab_Data/PR001856_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/", pattern = "bed.gz$", full = T)
+bed_file1 = dir("../data/Janssens_Lab_Data/BMMC_Beds/PR001798_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/", pattern = "bed.gz$", full = T)
+bed_file2 = dir("../data/Janssens_Lab_Data/BMMC_Beds/PR001799_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/", pattern = "bed.gz$", full = T)
+bed_file3 = dir("../data/Janssens_Lab_Data/BMMC_Beds/PR001855_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/", pattern = "bed.gz$", full = T)
+bed_file4 = dir("../data/Janssens_Lab_Data/BMMC_Beds/PR001856_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/", pattern = "bed.gz$", full = T)
 bed_file = c(bed_file1, bed_file2, bed_file3, bed_file4)
 sample_name =  str_replace(basename(bed_file), ".bed.gz", "")
 
@@ -55,10 +55,10 @@ object.size(d) %>% print(units = "auto")
 write_rds(d, "./tmp/all_fragments.rds")
 
 d_plot = d[, .(nFrags = .N), .(cell_id, sample_name)]
-write_tsv(d_plot, "../tmp/cell_fragments.tsv")
+write_tsv(d_plot, "./tmp/cell_fragments.tsv")
 
 #+ eval=T
-d_plot = fread("../tmp/cell_fragments.tsv")
+d_plot = fread("./tmp/cell_fragments.tsv")
 
 d_plot = merge(d_plot, sample_sheet, by.x = "sample_name", by.y = "sample_name")
 

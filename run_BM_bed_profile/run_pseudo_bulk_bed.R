@@ -7,8 +7,10 @@
 ## - ../data/sample_sheet_PR001799.tsv
 ## - ../data/sample_sheet_PR001855.tsv
 ## - ../data/sample_sheet_PR001856.tsv
-## - ../run_BM_archR_analysis/tmp/table_cell_cluster_annotation_final_round2.tsv
-## - ./tmp/all_fragments.rds 
+## - ../run_BM_archR_analysis/tmp/table_cell_cluster_annotation_final_round2.tsv, 
+## 	which is from the ../run_BM_archR_analysis/run_117_joint_umap.R script.
+## - ./tmp/all_fragments.rds
+## 	from the ./run_qc.R
 ## Outputs:
 ## - ./tmp/table_good_cells_fragments.tsv
 ## - ./tmp/pseudo_bulk_bed/*_pseudo_bulk.bed
@@ -96,9 +98,9 @@ for (i in seq_along(bed_files)) {
 
     cmd_sort = str_glue("conda run -n ucsc bedtools sort -i {bed_file} > {sorted_bed_file}")
     system(cmd_sort)
-    cmd_bg = str_glue("conda run -n ucsc bedtools genomecov -bg -i {sorted_bed_file} -g ./../../data/ref_genome/hg38.sizes > {bg_file}")
+    cmd_bg = str_glue("conda run -n ucsc bedtools genomecov -bg -i {sorted_bed_file} -g ./../data/ref_genome/hg38.sizes > {bg_file}")
     system(cmd_bg)
-    cmd_bw = str_glue("conda run -n ucsc bedGraphToBigWig {bg_file} ./../../data/ref_genome/hg38.sizes {bw_file}")
+    cmd_bw = str_glue("conda run -n ucsc bedGraphToBigWig {bg_file} ./../data/ref_genome/hg38.sizes {bw_file}")
     system(cmd_bw)
 }
 
