@@ -19,16 +19,16 @@ addArchRThreads(threads = 20)
 
 batch_info = data.table(
   sample_sheet_path = c(
-    "../../data/sample_sheet_PR001798.tsv",
-    "../../data/sample_sheet_PR001799.tsv",
-    "../../data/sample_sheet_PR001855.tsv",
-    "../../data/sample_sheet_PR001856.tsv"
+    "../data/sample_sheet_PR001798.tsv",
+    "../data/sample_sheet_PR001799.tsv",
+    "../data/sample_sheet_PR001855.tsv",
+    "../data/sample_sheet_PR001856.tsv"
   ),
   bed_dir = c(
-    "../../data/Janssens_Lab_Data/PR001798_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/",
-    "../../data/Janssens_Lab_Data/PR001799_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/",
-    "../../data/Janssens_Lab_Data/PR001855_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/",
-    "../../data/Janssens_Lab_Data/PR001856_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/"
+    "../data/Janssens_Lab_Data/BMMC_Beds/PR001798_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/",
+    "../data/Janssens_Lab_Data/BMMC_Beds/PR001799_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/",
+    "../data/Janssens_Lab_Data/BMMC_Beds/PR001855_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/",
+    "../data/Janssens_Lab_Data/BMMC_Beds/PR001856_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/"
   )
 )
 

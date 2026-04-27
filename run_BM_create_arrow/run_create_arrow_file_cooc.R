@@ -9,15 +9,15 @@ library(stringr)
 library(ArchR)
 
 ## get all the co-occupency bed files, and merge the coCnT1 and coCnT2 together
-bed_dir1 = "../../data/Janssens_Lab_Data/PR001855_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/"
-bed_dir2 = "../../data/Janssens_Lab_Data/PR001856_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/"
-bed_dir3 = "../../data/Janssens_Lab_Data/PR001798_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/"
-bed_dir4 = "../../data/Janssens_Lab_Data/PR001799_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/"
+bed_dir1 = "../data/Janssens_Lab_Data/BMMC_Beds/PR001855_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/"
+bed_dir2 = "../data/Janssens_Lab_Data/BMMC_Beds/PR001856_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/"
+bed_dir3 = "../data/Janssens_Lab_Data/BMMC_Beds/PR001798_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/"
+bed_dir4 = "../data/Janssens_Lab_Data/BMMC_Beds/PR001799_sciCoCnT_JAND_DNA_ALIGNMENT_WELLID_BARCODES/BED/"
 
-sample_sheet1 = fread("../../data/sample_sheet_PR001855.tsv")
-sample_sheet2 = fread("../../data/sample_sheet_PR001856.tsv")
-sample_sheet3 = fread("../../data/sample_sheet_PR001798.tsv")
-sample_sheet4 = fread("../../data/sample_sheet_PR001799.tsv")
+sample_sheet1 = fread("../data/sample_sheet_PR001855.tsv")
+sample_sheet2 = fread("../data/sample_sheet_PR001856.tsv")
+sample_sheet3 = fread("../data/sample_sheet_PR001798.tsv")
+sample_sheet4 = fread("../data/sample_sheet_PR001799.tsv")
 
 sample_sheet1$bed_path = paste0(bed_dir1, sample_sheet1$sample_name, ".bed.gz")
 sample_sheet2$bed_path = paste0(bed_dir2, sample_sheet2$sample_name, ".bed.gz")
