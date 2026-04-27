@@ -1,24 +1,21 @@
 # run_BM_archR_analysis
 
-ArchR-based analysis scripts for the bone marrow coCnT histone-mark dataset. This checkout is script-centric: each `run_*.R` file performs one analysis step and writes intermediate objects to `./tmp/` and figures to `./figures/`.
+ArchR-based analysis scripts for the bone marrow coCnT histone-mark dataset. 
+Each `run_*.R` file performs one analysis step and writes intermediate objects to `./tmp/` and figures to `./figures/`.
 
 ## Repository layout
 
-- `run_*.R`: analysis scripts in historical numeric order
+- `run_*.R`: analysis scripts in numeric order
 - `tmp/`: generated ArchR projects, matrices, metadata tables, and other intermediate outputs
 - `figures/`: exported plots and figure panels
-- `bk/`: local backup or scratch files kept alongside the main analysis
-- `ArchRLogs/`: ArchR log output
 
-## External dependencies
+## Dependencies
 
-This directory depends on data and helper code stored in sibling locations.
-
-- `../data/`: sample sheets, Seurat objects, gene lists, and reference tables
+- `../data/`: sample sheets, Seurat objects
+    You need to download the data folder from Zenodo, please refer to the main README for details.
 - `../run_BM_coCnT_create_arrow/`: Arrow files used when building ArchR projects
 - `../run_BM_souporcell/`: donor-assignment and barcode-refinement inputs
 - `../run_BM_bed_profile/`: fragment / bed-profile summaries used by downstream plotting scripts
-- `../app_trajectory_shiny/`: metadata tables reused when exporting trajectory annotations
 - `../lib/R/`: helper R functions sourced by some scripts
 
 ## R packages
@@ -44,10 +41,8 @@ Common packages used across the current scripts include:
 
 The numbering is historical rather than continuous. In the current checkout, the available scripts are:
 
-- `run_101` to `run_142`: project creation, QC, clustering, annotation, imputation, and pseudo-bulk summaries
-- `run_199` to `run_245`: RNA pseudo-bulk mapping, HSPC-focused re-analysis, chromatin-state analyses, and pseudotime / RNA comparison
-
-No `run_299*` or `run_999*` scripts are present in this checkout.
+- `run_101` to `run_199`: project creation, QC, clustering, annotation, imputation, and pseudo-bulk analysis
+- `run_201` to `run_245`: HSPC-focused re-analysis, chromatin-state analyses, and pseudotime / RNA comparison
 
 The scripts are not fully standalone. In practice, later scripts expect files produced by earlier scripts to already exist in `./tmp/`.
 
@@ -80,8 +75,6 @@ The scripts are not fully standalone. In practice, later scripts expect files pr
 - `run_118_annotation_qc.R`
 - `run_135_qc_final.R`
 
-This block covers doublet labelling/removal, iterative clustering, UMAP joins, marker-gene identification, RNA mapping, and final QC summaries across the cleaned single-mark and co-occurrence projects.
-
 ### 3. Gene-score imputation and pseudo-bulk summaries
 
 - `run_131_imputation_gene_score.R`
@@ -91,9 +84,7 @@ This block covers doublet labelling/removal, iterative clustering, UMAP joins, m
 - `run_142_gene_score_pseudo_bulk.R`
 - `run_199_rna_pseudo_bulk_match_cocnt_cluster.R`
 
-Representative outputs from this stage include imputed gene-score matrices, refreshed UMAP / metadata tables, `./tmp/table_gene_marker_average_score_by_celltype.tsv.gz`, and RNA pseudo-bulk tables derived from the Triana 2021 dataset.
-
-### 4. HSPC re-analysis and trajectory setup
+### 4. HSPC annotation refinement and trajectory setup
 
 - `run_201_re-cluster_HSPC.R`
 - `run_204_imputation_gene_score_HSPC.R`
@@ -104,8 +95,6 @@ Representative outputs from this stage include imputed gene-score matrices, refr
 - `run_212_trajectory_umap.R`
 - `run_213_three_lineage_umap.R`
 
-These scripts subset HSPC-like populations, recluster them, propagate HSPC annotations back into the whole-BM view, and add lineage trajectory information to the final H3K27me3 project.
-
 ### 5. Chromatin-state assignment and QC
 
 - `run_221_gaussian_mixture_model_cutoff.R`
@@ -114,8 +103,6 @@ These scripts subset HSPC-like populations, recluster them, propagate HSPC annot
 - `run_224_chromatin_status_between_marker_venn_plot.R`
 - `run_227_x2active.R`
 - `run_228_chromatin_status_qc.R`
-
-Key outputs include the `table_gene_chromatin_status_*` matrices in `./tmp/` plus QC and overlap figures summarizing state composition across cell types.
 
 ### 6. Pseudotime and RNA comparison
 
@@ -127,27 +114,3 @@ Key outputs include the `table_gene_chromatin_status_*` matrices in `./tmp/` plu
 - `run_245_pseudotime_heatmap.R`
 
 These scripts compare chromatin-state behavior, gene scores, and scRNA-seq expression along the lineage trajectories defined in the HSPC re-analysis.
-
-## Running scripts
-
-Scripts are generally run directly with `Rscript` from this directory:
-
-```bash
-Rscript run_101_create_proj.R
-Rscript run_135_qc_final.R
-Rscript run_222_chromatin_status_assignment.R
-Rscript run_245_pseudotime_heatmap.R
-```
-
-Recommended practice:
-
-- run scripts from the repository root so relative paths resolve correctly
-- inspect the top of each script for required input files and expected output locations
-- do not assume every script is idempotent; many overwrite `./tmp/` outputs
-- treat gaps in the numbering as historical artifacts, not missing mandatory pipeline stages
-
-## Notes
-
-- This README documents the scripts that are present in the current checkout.
-- Earlier revisions of the project referenced additional script ranges that are not in this directory anymore.
-- Some paths and object names still use iterative labels such as `final2` and `final3`; those reflect analysis snapshots rather than separate repositories.
