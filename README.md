@@ -37,6 +37,7 @@ If you are using scCoCnT and want to run SouporCells, please check out our Nextf
 ## Prepare the `data` folder
 
 Please download the `data` folder from Zenodo, which contains the raw Bed files and the sample sheet for the analysis.
+[BED files and sample sheet for Sun & Baird et al. CoCUT&Tag maps linked chromatin states at single-molecule, single-cell resolution](https://zenodo.org/records/18683901)
 
 Also for the reference scRNASeq data, please download from here: https://figshare.com/articles/dataset/Expression_of_97_surface_markers_and_RNA_transcriptome_wide_in_13165_cells_from_a_healthy_young_bone_marrow_donor/13397987?file=41038073
 
