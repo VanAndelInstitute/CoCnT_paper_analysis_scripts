@@ -11,10 +11,10 @@ library(ArchR)
 addArchRGenome("hg38")
 
 sample_sheet = rbind(
-    fread("../../data/sample_sheet_PR001798.tsv"),
-    fread("../../data/sample_sheet_PR001799.tsv"),
-    fread("../../data/sample_sheet_PR001855.tsv"),
-    fread("../../data/sample_sheet_PR001856.tsv")
+    fread("../data/sample_sheet_PR001798.tsv"),
+    fread("../data/sample_sheet_PR001799.tsv"),
+    fread("../data/sample_sheet_PR001855.tsv"),
+    fread("../data/sample_sheet_PR001856.tsv")
     )
 
 arrow_file = dir("../run_BM_coCnT_create_arrow/", pattern = "arrow$", full = T)
